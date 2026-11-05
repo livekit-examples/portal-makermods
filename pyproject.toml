@@ -2,7 +2,7 @@
 name = "portal-makermods"
 version = "0.1.0"
 description = "Human-in-the-loop robot learning with LiveKit Portal on a pair of MakerMods Metal arms."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.15,<3.16"
 dependencies = [
     "livekit-portal[rerun,lerobot]>=0.3.0rc2",
     "livekit-api>=0.7",
