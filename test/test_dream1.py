@@ -11,7 +11,7 @@ import dream
 import numpy as np
 from livekit.portal import OperatorConfig
 
-from utils.common import CONFIG_PATH, ROOT
+from utils.common import portal_config, ROOT
 from utils.metal import GRIPPER_MAX_MM, LIMITS_RAD, arm_fields
 
 _spec = importlib.util.spec_from_file_location("dream1", ROOT / "src/policies/dream_1/run.py")
@@ -21,7 +21,7 @@ _spec.loader.exec_module(dream1)
 
 class Dream1Tests(unittest.TestCase):
     def test_cameras_and_fields_match_portal_yaml(self):
-        cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, "test")
+        cfg = portal_config(OperatorConfig, "test", "metal")
         self.assertEqual(set(dream1.CAMERAS.values()), set(cfg.video_tracks))
         self.assertEqual({f.name for f in cfg.action_schema}, set(arm_fields("left") + arm_fields("right")))
 

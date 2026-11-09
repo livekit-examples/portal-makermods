@@ -1588,6 +1588,18 @@ wheels = [
 ]
 
 [[package]]
+name = "motorbridge"
+version = "0.5.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/be/3c5fc8f1166119c0d5e8e4cb8452481ad50253117f4f251018b98070004c/motorbridge-0.5.6.tar.gz", hash = "sha256:07abecd895f173b3b790fac114e0fe8e02a4ba87f9de71299b5c2a1b70a3bca4", size = 42965, upload-time = "2026-09-20T09:50:25.808Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/63/f224844b78ade34040f37622fd83865e37a64b79caaed89953030763000d/motorbridge-0.5.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4530ec25a5f4411c62bd8d3eb3063e54193379e99c064991df73e6797a884a3a", size = 1250541, upload-time = "2026-09-20T09:50:15.495Z" },
+    { url = "https://files.pythonhosted.org/packages/63/9e/8fff58a53aa6997a7792425aa9d49646641ec574f399a30f1a60933a18d6/motorbridge-0.5.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5349821bedfe63f60a196f967dd7892029bd925d3e5e35b258bde50182bc3478", size = 1351233, upload-time = "2026-09-20T09:50:16.672Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/95/109590e8f82e3078a2d27e241ab3b4e4d0445502eed87f33e661d1c6a725/motorbridge-0.5.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b05438f6c086b63ebc90b57e115949d4ae0dcdeb977b5f45f27f2a9af816b3e0", size = 1370149, upload-time = "2026-09-20T09:50:17.867Z" },
+    { url = "https://files.pythonhosted.org/packages/09/5a/b9cb201294acd1c0c136d63fdb855451be3364bafc6ce9a9a4ff3741608e/motorbridge-0.5.6-cp312-cp312-win_amd64.whl", hash = "sha256:c738539994dcf4836d133a89a7b7d0bdcbe5baa9fe0a2ecd5017780c8241bc64", size = 1034047, upload-time = "2026-09-20T09:50:18.927Z" },
+]
+
+[[package]]
 name = "mpmath"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2206,6 +2218,7 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pynput" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -2214,6 +2227,9 @@ hands = [
 ]
 monitor = [
     { name = "lerobot", extra = ["topreward"] },
+]
+rebot = [
+    { name = "motorbridge" },
 ]
 train = [
     { name = "lerobot", extra = ["training"] },
@@ -2234,11 +2250,13 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.5" },
     { name = "pynput", specifier = ">=1.7" },
     { name = "python-dotenv", specifier = ">=1" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 
 [package.metadata.requires-dev]
 hands = [{ name = "mediapipe", specifier = ">=1.2" }]
 monitor = [{ name = "lerobot", extras = ["topreward"], specifier = ">=0.6.1" }]
+rebot = [{ name = "motorbridge", specifier = "==0.5.6" }]
 train = [{ name = "lerobot", extras = ["training"], specifier = ">=0.6.1" }]
 voice = [
     { name = "livekit-agents", specifier = "~=1.8" },

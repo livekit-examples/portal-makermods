@@ -1,5 +1,8 @@
 # 2. Run Dream-1 and record corrections
 
+This chapter's `dream-1` app uses the Metal pair. For the single-ReBot
+`dream-1-tasks` app, use [chapter 13](13-rebot.md).
+
 Dream-1 runs on Dream Labs' servers and needs no training dataset. Run it on
 your task, correct it with the leaders, and record the corrected attempts for ACT.
 A **take** is one attempt, marked with `r` to begin and `r` to end.

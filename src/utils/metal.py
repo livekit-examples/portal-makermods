@@ -181,6 +181,8 @@ class Followers:
     Parked, the arms are switched off at rest and open read-only: state keeps flowing, actions are ignored.
     """
 
+    park_speed_env = "METAL_PARK_DEG_S"
+
     def __init__(self, arms: dict[str, Arm], cameras: dict[str, Camera], limiter: StepLimiter) -> None:
         self.arms, self.cameras, self.limiter = arms, cameras, limiter
         self.parked = False
@@ -236,7 +238,10 @@ class Followers:
             self.limiter.present.clear()  # the arms moved under the limiter: never command before a fresh read
 
     def _walk_to_rest(self, fps: int) -> None:
-        step = math.radians(env_float("METAL_PARK_DEG_S", 10.0)) / fps
+        speed = env_float(self.park_speed_env, 10.0)
+        if not math.isfinite(speed) or speed <= 0:
+            raise ValueError(f"{self.park_speed_env} must be positive and finite")
+        step = math.radians(speed) / fps
         present = {side: arm.read() for side, arm in self.arms.items()}
         if any(value is None for value in present.values()):
             raise RuntimeError("an arm is unreadable; not moving")
@@ -250,7 +255,7 @@ class Followers:
                 arrived &= all(abs(r - t) < 1e-9 for t, r in zip(target[side], arm.rest))
                 arm.command(target[side] + [present[side][6]])
                 if (reading := arm.read()) is None:
-                    continue
+                    raise RuntimeError(f"{side} arm became unreadable on the way to rest; holding under power")
                 if (lag := max(abs(t - q) for t, q in zip(target[side], reading[:6]))) > PARK_LAG_RAD:
                     arm.command(reading)
                     raise RuntimeError(f"{side} arm is {math.degrees(lag):.0f} deg behind its target on the way "

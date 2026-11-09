@@ -25,7 +25,7 @@ import functools
 import time
 from typing import Iterator
 
-from utils.common import (CONFIG_PATH, HOME_RPC, PARK_ONLY, PARK_RPC, PARK_TOGGLE, ROBOT_IDENTITY, HardwareThread,
+from utils.common import (portal_config, HOME_RPC, PARK_ONLY, PARK_RPC, PARK_TOGGLE, ROBOT_IDENTITY, HardwareThread,
                           TickBudget, env_int, load_env, mint_token, pace, required_env)
 from livekit.portal import Action, Robot, RobotConfig
 from utils.hotkeys import Hotkeys
@@ -96,15 +96,14 @@ def diagnostics(followers, budget: TickBudget) -> Iterator[str]:
         yield f"speed cap: {clamped} joint commands ramped in 5s"
 
 
-async def main() -> None:
+async def main(builder=None, profile: str = "metal") -> None:
     load_env()
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-    cfg = RobotConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(RobotConfig, room, profile)
     fps = env_int("PORTAL_FPS", cfg.fps)
     tracks = list(cfg.video_tracks)
 
-    followers = build_followers(tracks, fps)
-    followers.connect()  # opens both arms or neither
+    followers = build_followers(tracks, fps) if builder is None else builder(cfg, fps)
     robot = Robot(cfg)
     hardware = HardwareThread("followers")
     hotkeys = Hotkeys(global_tap=False)  # this terminal only; works over SSH
@@ -171,6 +170,7 @@ async def main() -> None:
 
     budget = TickBudget(fps)
     try:
+        await hardware.run(followers.connect)
         print(f"[robot] connecting to {url} as '{ROBOT_IDENTITY}' in room '{room}' ...")
         await robot.connect(url, mint_token(ROBOT_IDENTITY, room))
         hotkeys.start()
@@ -222,8 +222,10 @@ async def main() -> None:
             await robot.disconnect()
         finally:
             robot.close()
-            hardware.close()
-            followers.disconnect()
+            try:
+                await hardware.run(followers.disconnect)
+            finally:
+                hardware.close()
 
 
 def run() -> None:

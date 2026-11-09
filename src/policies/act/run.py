@@ -16,7 +16,7 @@ from lerobot.processor.converters import policy_action_to_transition, transition
 from lerobot.processor.pipeline import DataProcessorPipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from utils.common import (CONFIG_PATH, HardwareThread, claim_or_release, env_int, load_env, mint_token, pace,
+from utils.common import (portal_config, HardwareThread, claim_or_release, env_int, load_env, mint_token, pace,
                           request_park, required_env)
 from utils.hotkeys import Hotkeys
 from livekit.portal import Operator, OperatorConfig, frame_bytes_to_numpy_rgb
@@ -65,7 +65,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-    cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(OperatorConfig, room)
     fps = env_int("PORTAL_FPS", cfg.fps)
     state_keys, action_keys = dataset_fields(args.dataset_root.expanduser(), cfg)
     checkpoint = str(args.checkpoint.expanduser().resolve())

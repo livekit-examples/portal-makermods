@@ -50,3 +50,21 @@ action:
   - { name: right_joint5.pos, dtype: f32 }
   - { name: right_joint6.pos, dtype: f32 }
   - { name: right_gripper.pos, dtype: f32 }
+
+# `robot-rebot` and `dream-1-tasks` select this profile. Other peers select it
+# with PORTAL_PROFILE=rebot. The top-level contract remains the Metal pair.
+profiles:
+  rebot:
+    videos:
+      - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+      - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+    # Six URDF joint angles in radians, then grip 0 closed .. 1 open.
+    state: &rebot_fields
+      - { name: right_joint1.pos, dtype: f32 }
+      - { name: right_joint2.pos, dtype: f32 }
+      - { name: right_joint3.pos, dtype: f32 }
+      - { name: right_joint4.pos, dtype: f32 }
+      - { name: right_joint5.pos, dtype: f32 }
+      - { name: right_joint6.pos, dtype: f32 }
+      - { name: right_gripper.pos, dtype: f32 }
+    action: *rebot_fields

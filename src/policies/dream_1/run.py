@@ -20,7 +20,7 @@ import dream
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from utils.common import (CONFIG_PATH, HardwareThread, claim_or_release, env_float, env_int, env_str, load_env,
+from utils.common import (portal_config, HardwareThread, claim_or_release, env_float, env_int, env_str, load_env,
                           mint_token, pace, request_park, required_env)
 from livekit.portal import Operator, OperatorConfig, frame_bytes_to_numpy_rgb
 from utils.hotkeys import Hotkeys
@@ -97,7 +97,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-    cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(OperatorConfig, room, "metal")
     fps = env_int("PORTAL_FPS", cfg.fps)
     # Per-tick cap on the commanded target: joints in rad, grips 5% of their range per row.
     max_step = np.tile([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6 + [0.05 * ROW_HZ / fps], 2)

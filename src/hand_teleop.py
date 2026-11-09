@@ -31,7 +31,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from utils.common import (CONFIG_PATH, HardwareThread, claim_or_release, env_camera_id, env_float, env_int, env_str,
+from utils.common import (portal_config, HardwareThread, claim_or_release, env_camera_id, env_float, env_int, env_str,
                           hand_teleop_identity, load_env, mint_token, pace, request_park, required_env)
 from utils.hands import (BONES, INDEX_TIP, THUMB_TIP, ArmFollower, ArmsIK, Clutch, Hand, HandPose, HandSize, Mapping,
                          assign_sides, camera_to_base, hand_pose, turn_between)
@@ -354,7 +354,7 @@ async def main() -> None:
         from livekit.portal import OperatorConfig
 
         url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-        cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
+        cfg = portal_config(OperatorConfig, room, "metal")
         fps, cameras = env_int("PORTAL_FPS", cfg.fps), list(cfg.video_tracks)
 
     width, height = env_int("HAND_CAMERA_WIDTH", 640), env_int("HAND_CAMERA_HEIGHT", 480)

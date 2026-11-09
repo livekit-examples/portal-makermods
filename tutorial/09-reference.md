@@ -3,6 +3,12 @@
 Use this chapter when changing hosts, tuning settings, or diagnosing a problem.
 For your first run, start with [rig setup](01-first-recording.md).
 
+For the single B601-DM, see [ReBot setup and settings](13-rebot.md). Its
+`REBOT_*` device, gripper, speed, and camera settings are separate from the
+Metal settings below. Recorder, task monitor, and ACT select its wire
+contract with `PORTAL_PROFILE=rebot`; `robot-rebot` and `dream-1-tasks`
+select it explicitly.
+
 ## Human-only demonstrations
 
 If you prefer to train without Dream-1, complete [chapter 1](01-first-recording.md),

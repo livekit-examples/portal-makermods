@@ -7,6 +7,7 @@ uv run --group train python -m unittest test.test_act
 uv run python -m test.test_teleop
 uv run python -m test.test_resilience
 uv run python -m unittest test.test_dream1 test.test_dream1_tasks test.test_task_monitor
+uv run python -m unittest test.test_rebot
 uv run python -m unittest test.test_hands
 ```
 
@@ -28,6 +29,7 @@ uv run --group voice python -m test.test_monitor_voice
 | `test_teleop` | Control cycling, frame anchors, task selection, keyboard input, preview |
 | `test_resilience` | Per-arm CAN failure recovery, both-arms-or-nothing state, target-step and soft limits, park and home requests |
 | `test_dream1` | Dream-1 embodiment, camera roles, frame encoding, unit mapping, chunk layout |
+| `test_rebot` | Single-arm/two-camera profile, ReBot units and limits, MotorBridge calls, read failures, park verification, Dream padding and right-only actions |
 | `test_dream1_tasks` | A task change pauses first and never starts motion; pause, resume, teleop and hand-teleop handoff, hand teleop off; task sources |
 | `test_hands` | Webcam hand teleop without a camera: the grip gesture, the hand's position and turn (wherever it sits in the image), the mapping onto each arm, the IK's floor and place-before-turn, and glitches letting go |
 | `test_pubsub` | Discovery, control gate, observation transport |

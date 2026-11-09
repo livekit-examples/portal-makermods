@@ -22,6 +22,21 @@ from livekit.protocol.room import RoomConfiguration
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "portal.yaml"
 
+
+def portal_config(config_type, room: str, profile: str | None = None):
+    """Read one rig's wire contract from portal.yaml; observers use PORTAL_PROFILE."""
+    import yaml
+
+    document = yaml.safe_load(CONFIG_PATH.read_text())
+    profiles = document.pop("profiles", {})
+    profile = profile or env_str("PORTAL_PROFILE", "metal")
+    if profile != "metal":
+        if profile not in profiles:
+            raise ValueError(f"unknown Portal profile {profile!r}")
+        document.update(profiles[profile])
+    return config_type.from_yaml_str(yaml.safe_dump(document), room)
+
+
 ROBOT_IDENTITY = "robot"
 TELEOPERATOR_IDENTITY = "teleoperator"
 HAND_TELEOP_IDENTITY = "hand-teleop"  # the webcam hand teleop's default; see hand_teleop_identity()

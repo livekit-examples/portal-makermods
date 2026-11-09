@@ -7,12 +7,16 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 ## Structure
 
 - `src/robot.py`, `src/teleoperator.py`, and `src/recorder.py` show the Portal flows.
+- `src/robot_rebot.py` (`uv run --group rebot robot-rebot`) reuses the robot loop with one Seeed B601-DM
+  and overhead/arm cameras; `src/utils/rebot.py` uses MotorBridge's Damiao driver, loaded lazily.
 - `src/utils/common.py` holds shared environment, token, and scheduling helpers.
 - `src/utils/metal.py` drives the Metal pair through Dream Labs' `robots` package (imported lazily):
   followers energized, leaders read-only; `src/utils/` also holds preview, hotkey, and task-prompt details.
 - `src/policies/act/` contains training (`train.py`), the operator (`run.py`, `uv run act`), and a SkyPilot example.
 - `src/policies/dream_1/` runs Dream Labs' Dream-1 (`run.py`, `uv run dream-1`) with the dream client's `metal` IK.
-- `src/policies/dream_1_tasks/` is that loop with a switchable task (`uv run dream-1-tasks`); it answers the `dream.*`
+- `src/policies/dream_1_tasks/` drives the single ReBot with a switchable task (`uv run dream-1-tasks`); its
+  RebotMapping uses a custom Dream arm file and pads the base model's absent left arm/view, never Portal data.
+  It answers the `dream.*`
   RPCs named in `src/utils/common.py`: set the task, pause, resume, hand control to the teleoperator or the webcam
   hand teleop (`src/hand_teleop.py`, identity from `hand_teleop_identity()`), take it from the hand teleop.
 - `src/voice_agent.py` (`uv run --group voice voice-agent`) is a LiveKit Agents voice agent on agent-starter-python's
@@ -30,7 +34,9 @@ Update affected chapters with behavior changes.
 
 ## Rules
 
-- All peers load `portal.yaml`; do not duplicate schema field lists in Python.
+- All peers load `portal.yaml` through `utils.common.portal_config`; do not duplicate schema field lists in Python.
+  Top-level fields are Metal; `profiles.rebot` overrides them for ReBot. Recorder, monitor, and ACT use
+  `PORTAL_PROFILE`; the hardware-specific apps select their profile explicitly.
 - Model tensors use training dataset order, read from `meta/info.json`.
 - Control is explicit: `c` selects an operator, `p` parks or powers up the arms. No background auto-claim loop.
   A task change releases Dream-1's control first; only an explicit resume (`c`, or "continue") gives it back.
@@ -55,6 +61,7 @@ uv run --group train python -m unittest test.test_act
 uv run python -m test.test_teleop
 uv run python -m test.test_resilience
 uv run python -m unittest test.test_dream1 test.test_dream1_tasks test.test_task_monitor
+uv run python -m unittest test.test_rebot
 uv run python -m unittest test.test_hands
 # With livekit-server --dev:
 uv run --group voice python -m test.test_voice_tasks

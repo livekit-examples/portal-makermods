@@ -2,8 +2,9 @@
 
     uv run dream-1-tasks --task "put the blue cube in the box" --task "put the red cube in the box" --dry-run
 
-The control loop is `uv run dream-1`'s (src/policies/dream_1/run.py); what changes is where the prompt comes
-from. `TaskControl` holds it: keys `1`-`9` pick one of the session's tasks, and other peers, over RPC, change it,
+This app drives one Seeed B601-DM with overhead and arm cameras (tutorial/13-rebot.md).
+The scheduling follows `uv run dream-1`; RebotMapping supplies this arm's units and kinematics.
+`TaskControl` holds the task: keys `1`-`9` pick a preset, and other peers, over RPC, change it,
 pause and resume Dream-1, hand the arms to the teleoperator or the webcam hand teleop, or take them away from the
 hand teleop. The voice agent (`uv run voice-agent`) is one.
 
@@ -26,9 +27,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from livekit.portal import Operator, OperatorConfig, RpcError, frame_bytes_to_numpy_rgb
-from policies.dream_1.run import (CAMERAS, ROW_HZ, STALE_S, chunk_rows, embodiment, encode_frame, retry_delay,
-                                  to_model, to_robot)
-from utils.common import (CONFIG_PATH, DREAM_PAUSE_RPC, DREAM_RESUME_RPC, DREAM_SET_TASK_RPC, DREAM_STATUS_RPC,
+from policies.dream_1.run import ROW_HZ, STALE_S, encode_frame, retry_delay
+from policies.dream_1_tasks.rebot import CAMERAS, RebotMapping, chunk_rows
+from utils.common import (portal_config, DREAM_PAUSE_RPC, DREAM_RESUME_RPC, DREAM_SET_TASK_RPC, DREAM_STATUS_RPC,
                           DREAM_STOP_HAND_TELEOP_RPC, DREAM_TASKS_IDENTITY, DREAM_TO_HAND_TELEOP_RPC,
                           DREAM_TO_TELEOP_RPC, TELEOPERATOR_IDENTITY, HardwareThread, claim_or_release, env_float,
                           env_int, env_str, hand_teleop_identity, load_env, mint_token, pace, request_park,
@@ -166,35 +167,26 @@ async def main() -> None:
     args = parser.parse_args()
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-    cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(OperatorConfig, room, "rebot")
+    mapping = RebotMapping(cfg, required_env("REBOT_ARM_FILE"))
     fps = env_int("PORTAL_FPS", cfg.fps)
     # Per-tick cap on the commanded target: joints in rad, grips 5% of their range per row.
-    max_step = np.tile([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6 + [0.05 * ROW_HZ / fps], 2)
+    max_step = np.array([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6 + [0.05 * ROW_HZ / fps])
 
     client = dream.DreamClient()  # reads DREAM_API_KEY from .env (or ~/.dreamlabs/credentials)
     worker = HardwareThread("dream-1")  # one request at a time, off the event loop
-    await worker.run(client.policy, {
-        "checkpoint": env_str("DREAM_CHECKPOINT", "dreamlabs/dream-1-beta"),
-        "embodiment": embodiment(),
-        "ik": {"arm": "metal", "head": "eef"},
-        "action_hz": ROW_HZ,
-    })
+    policy = mapping.policy_config(env_str("DREAM_CHECKPOINT", "dreamlabs/dream-1-beta"), ROW_HZ)
 
     def ask() -> tuple[float, np.ndarray]:
         asked_at = time.monotonic()
         return asked_at, chunk_rows(client.get_action())
 
     def send_observation(obs, task: str) -> None:
-        frames = {}
+        frames = {"video.wrist_l": mapping.blank_wrist}
         for role, track in CAMERAS.items():
             frame = obs.frames[track]
             frames[f"video.{role}"] = encode_frame(frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height))
-        row = to_model(obs.state)
-        client.set_observation(frames, {
-            "prompt": task,
-            "state.left_arm": row[:6].tolist(), "state.left_grip": row[6:7].tolist(),
-            "state.right_arm": row[7:13].tolist(), "state.right_grip": row[13:].tolist(),
-        })
+        client.set_observation(frames, mapping.observation(obs.state, task))
 
     op = Operator(cfg)
     tasks = TaskControl(op, session_tasks(args.task))
@@ -221,6 +213,7 @@ async def main() -> None:
     retry_at = 0.0
     hotkeys = Hotkeys(global_tap=False)  # this terminal only; works over SSH
     try:
+        await worker.run(client.policy, policy)
         await op.connect(url, mint_token(DREAM_TASKS_IDENTITY, room))
         hotkeys.start()
         for number, task in enumerate(tasks.presets, start=1):
@@ -244,7 +237,8 @@ async def main() -> None:
             obs = latest_obs
             if not tasks.driving() or tasks.task is None:
                 continue  # with no task, even when handed control, send nothing: the arms hold
-            if obs is None or time.monotonic() - received_at > STALE_S or set(CAMERAS.values()) - set(obs.frames):
+            if (obs is None or time.monotonic() - received_at > STALE_S
+                    or set(CAMERAS.values()) - set(obs.frames) or set(mapping.fields) - set(obs.state)):
                 continue  # no fresh view: send nothing, and the arms hold
 
             if control_changed or tasks.changed:
@@ -255,7 +249,7 @@ async def main() -> None:
                     request = None
                 await worker.run(client.reset_episode)
                 chunk, sent_ts, retry_at = None, None, 0.0
-                target = to_model(obs.state)
+                target = mapping.to_model(obs.state)
 
             if obs.timestamp_us != sent_ts:
                 send_observation(obs, tasks.task)
@@ -283,7 +277,7 @@ async def main() -> None:
                 continue
 
             target = target + np.clip(row - target, -max_step, max_step)
-            action = to_robot(target)
+            action = mapping.to_robot(target)
             if not args.dry_run:
                 op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
             elif tick % fps == 0:

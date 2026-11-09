@@ -3,6 +3,10 @@
 Run Dream-1, take over with the leader arms when it needs help, and record the
 corrected attempts. Train ACT on those recordings, then repeat the correction loop.
 
+For one **Seeed reBot B601-DM** with overhead and arm cameras, start with
+[chapter 13](tutorial/13-rebot.md): `robot-rebot` and `dream-1-tasks` use that rig.
+`robot` and `dream-1` continue to use the Metal pair.
+
 ## The tutorial
 
 Follow these chapters in order:
@@ -47,6 +51,7 @@ Read these after completing the walkthrough, or when you need to change the code
 | [09. Reference](tutorial/09-reference.md) | Settings, alternatives, and troubleshooting |
 | [10. Voice](tutorial/10-voice-tasks.md) | Change Dream-1's task and who drives by talking |
 | [12. Task monitor](tutorial/12-task-monitor.md) | Pause Dream-1 when its task is done or stuck, and say how it is going |
+| [13. Single ReBot](tutorial/13-rebot.md) | B601-DM setup, two cameras, and task-switching Dream-1 |
 
 **Metal arms have no brakes.** Start the robot with the followers resting: that is
 where they park. `p` parks them (walk back, switch off) or powers them up, and the

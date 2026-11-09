@@ -11,12 +11,12 @@ from livekit.portal import OperatorConfig
 
 from policies.act.run import action_dict, build_batch, dataset_fields
 from policies.act.train import find_resume_config, training_args
-from utils.common import CONFIG_PATH
+from utils.common import portal_config
 
 
 class ActTests(unittest.TestCase):
     def test_dataset_order_and_schema_validation(self):
-        cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, "test")
+        cfg = portal_config(OperatorConfig, "test", "metal")
         names = list(reversed([f.name for f in cfg.state_schema]))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

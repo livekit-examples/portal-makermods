@@ -2,10 +2,9 @@
 
 Dream-1 follows a one-line task prompt. In [chapter 2](02-dream-1.md) that prompt
 is fixed when the process starts, and `c` is the only way to hand over control.
-Here you run a Dream-1 operator whose task can change while it runs, and a voice
-agent that lets you change the task, pause and resume Dream-1, pass the arms
-between Dream-1, the leader arms, and your hands in front of a webcam, send them
-home, and park them, by talking:
+Here `dream-1-tasks` drives one Seeed ReBot B601-DM with two cameras. Complete
+[chapter 13](13-rebot.md) first. The voice agent lets you change its task,
+pause and resume Dream-1, send the arm home, and park it by talking:
 
 > **You:** Put the blue cube in the box.\
 > **Agent:** Task set; say "continue" when you're ready for me to start.\
@@ -13,10 +12,6 @@ home, and park them, by talking:
 > **You:** Wait, stop! Put the red cube in the box instead. *(The arms hold as soon as "wait" is heard.)*\
 > **Agent:** I've switched the task to the red cube; say "continue" when you're ready.\
 > **You:** Continue. *(Dream-1 starts on the red cube from where the arms are.)*\
-> **You:** Switch to teleop. *(The followers track the leader arms.)*\
-> **You:** Okay, back to Dream-1. *(Dream-1 takes over again.)*\
-> **You:** Hand teleop. *(Your hands in front of the webcam drive the arms; each holds until a hand grips it.)*\
-> **You:** Disable hand teleop. *(Nobody drives; the arms hold where they are.)*\
 > **You:** Reset the arms. *(They walk back to their rest pose and hold there, powered.)*\
 > **You:** Continue. *(Dream-1 starts its task again from the rest pose.)*\
 > **You:** Park the arms. *(They walk back to their rest pose and switch off.)*
@@ -24,17 +19,18 @@ home, and park them, by talking:
 **A new task never starts motion.** Changing the task while Dream-1 drives pauses
 it first; only "continue" (or `c`) hands the arms back. Voice is not an emergency
 stop: a spoken "stop" takes effect a second or two after you say it. To intervene
-faster, take over with the leaders (`c` in teleop) or park (`p`).
+faster, release control with `c` in the Dream-1 terminal or park with `p`.
 
-Complete [chapter 2](02-dream-1.md) first: this chapter uses the same rig,
-Dream-1 key, and running robot, recorder, and teleoperator. For "hand teleop",
-also run [chapter 11](11-hand-teleop.md)'s webcam hand teleop.
+Keep `robot-rebot` running in the ReBot room. Set `PORTAL_PROFILE=rebot` on
+any recorder or task-monitor host. The handoff RPCs below remain available for
+a compatible human operator, but the supplied Metal teleoperator and webcam
+hand teleop use different kinematics and units; do not run them in this room.
 
 ## 1. How it fits
 
 | Process | Identity | What it does |
 |---|---|---|
-| `uv run dream-1-tasks` | `policy-dream-1-tasks` (Portal operator) | Chapter 2's Dream-1 loop with a switchable task; answers the `dream.*` RPCs |
+| `uv run dream-1-tasks` | `policy-dream-1-tasks` (Portal operator) | Single ReBot Dream-1 loop with a switchable task; answers the `dream.*` RPCs |
 | `uv run --group voice voice-agent` | `voice-agent` (not a Portal peer) | Turns what you say into those RPCs; never drives the arms |
 
 ```text
@@ -101,9 +97,9 @@ LIVEKIT_INFERENCE_API_SECRET=YOUR_CLOUD_API_SECRET
 
 ## 3. Start the task-switching Dream-1
 
-Keep the robot, recorder, and teleoperator running, and stop `uv run dream-1` if
-it is running. On the **robot host**, give the session's tasks, then check the
-targets without moving as in [chapter 2](02-dream-1.md#2-check-targets-without-moving):
+Keep `robot-rebot` running. On the **policy host**, set `REBOT_ARM_FILE` as in
+[chapter 13](13-rebot.md), give the session's tasks, then check the targets
+without moving:
 
 ```bash
 uv run dream-1-tasks --dry-run \
@@ -143,15 +139,10 @@ The agent greets you with the current task and who is driving. Then:
 | "How's it going?", "is it done?" | `dream.status`, plus the task monitor's estimate ([chapter 12](12-task-monitor.md)) |
 | "Put the red cube in the box and go" | `dream.set_task`, then `dream.resume` |
 
-Before "switch to teleop", hold the leaders near the followers' pose, as before
-pressing `c`: the followers start tracking them at once, within the step limit.
-"Hand teleop" needs no lining up: the arms hold until a hand grips, and each grip
-moves its arm relative to where it is, as in [chapter 11](11-hand-teleop.md).
-Saying just "teleop" means the leaders; if only the hand teleop is connected, the
-agent asks whether you meant it. "Disable hand teleop" takes control from the hand
-teleop and gives it to no one, like a pause: the arms hold where they are until
-you say "continue" or "teleop". It never stops Dream-1 or the leaders. A plain
-"stop" leaves the hand teleop driving, as it does the leaders.
+The teleop and hand-teleop requests work only when a compatible operator is
+connected. With this repository's single-ReBot setup, use task, pause, resume,
+home, and park commands. A plain "stop" releases Dream-1 only; it does not
+revoke a human operator's control.
 
 "Stop", "wait", "hold on", "pause", and "freeze" are matched in the live
 transcript and pause Dream-1 before you finish the sentence. The LLM still reads
@@ -172,22 +163,18 @@ reaches Dream-1 through its own connection to `LIVEKIT_ROOM`.
 
 ## 5. Record the corrections
 
-Teleop owns the takes and labels each with *its* task. A spoken task changes
-what Dream-1 does, not the label of the open take. In a recording session:
-
-1. Set the same list on both hosts with `PORTAL_DATA_TASKS`, so teleop's `1`–`9`
-   name the same tasks as `dream-1-tasks`.
-2. End the take with `r`, or discard it with `[`, before you change the task by voice.
-3. Select the matching task in teleop with its number, start the next take with
-   `r`, then say "continue".
-
-Pauses and handoffs inside a take are fine: the recorder keeps writing, and a
-correction you make after "switch to teleop" is recorded as in chapter 2.
+Recording remains separate from this policy. A ReBot-compatible recording
+operator must start/end takes and label them. The existing Metal teleoperator
+cannot be used for ReBot corrections. With a compatible operator, end the take
+before changing a task, then begin a new take with the matching task label.
+A spoken task changes Dream-1's prompt, not the label of an open take.
 
 ## 6. How the code works
 
 [`src/policies/dream_1_tasks/run.py`](../src/policies/dream_1_tasks/run.py)
-reuses chapter 2's mapping functions and loop. `TaskControl` holds the task and
+reuses chapter 2's scheduling and frame encoder. `RebotMapping` supplies
+single-arm actions, custom ReBot IK, and padding for the model's absent left
+arm/view (see chapter 13). `TaskControl` holds the task and
 answers the RPCs. `set_task` releases control before it changes the prompt, and
 sets `changed`. The loop then treats a task change like a handoff:
 
@@ -223,14 +210,14 @@ and the RPCs between the agent's connection and a real operator.
 - **The agent says Dream-1 is not in the room.** Start `uv run dream-1-tasks`,
   and check both use the same `LIVEKIT_URL` and `LIVEKIT_ROOM`.
 - **The agent says the robot is not in the room.** "Home" and "park" go to the
-  robot itself: start `uv run robot` with the same `LIVEKIT_URL` and `LIVEKIT_ROOM`.
+  robot itself: start `uv run --group rebot robot-rebot` with the same `LIVEKIT_URL` and `LIVEKIT_ROOM`.
 - **"Continue" after a park moves nothing.** Parked arms ignore actions. Press
   `p` in the robot, teleop, or `dream-1-tasks` terminal to power them up first.
-- **"The teleoperator is not connected."** Start `uv run teleoperator` on the
-  teleop host; the agent hands control only to a connected teleoperator.
-- **"The hand teleop is not connected."** Start `uv run --group hands hand-teleop`
-  ([chapter 11](11-hand-teleop.md)) with the same `LIVEKIT_URL` and `LIVEKIT_ROOM`.
-  If you set `HAND_TELEOP_IDENTITY`, set it where `dream-1-tasks` runs too.
+- **"The teleoperator is not connected."** Connect a ReBot-compatible
+  teleoperator; the supplied Metal leader app is not compatible.
+- **"The hand teleop is not connected."** The supplied webcam hand app is for
+  Metal. This RPC requires a ReBot-compatible hand operator. If you set
+  `HAND_TELEOP_IDENTITY`, set it where `dream-1-tasks` runs too.
 - **The agent cannot reach its models.** LiveKit Inference needs a Cloud
   project's key: `LIVEKIT_API_KEY` for a Cloud `LIVEKIT_URL`, otherwise
   `LIVEKIT_INFERENCE_API_KEY` and `LIVEKIT_INFERENCE_API_SECRET`.
@@ -240,8 +227,8 @@ and the RPCs between the agent's connection and a real operator.
 - **Console mode finds no microphone.** List devices with
   `voice-agent console --list-devices` and pick one with `--input-device`.
   The CLI may print that console mode is moving to `lk agent console`; it still works.
-- **"Continue" does nothing.** Dream-1 sends nothing until all three cameras
-  publish, as in chapter 2. Ask "what's happening?" and check the
+- **"Continue" does nothing.** Dream-1 sends nothing until both ReBot cameras and a complete state
+  publish, as in chapter 13. Ask "what's happening?" and check the
   `dream-1-tasks` terminal.
 
 ---

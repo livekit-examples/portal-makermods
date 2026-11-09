@@ -5,6 +5,11 @@ The loop publishes both followers' state and three camera feeds, then applies
 the latest accepted action. Hardware calls live in
 [`src/utils/metal.py`](../src/utils/metal.py).
 
+`robot-rebot` reuses this loop with one B601-DM and two cameras, supplied by
+[`src/utils/rebot.py`](../src/utils/rebot.py). It selects the `rebot` profile
+from `portal.yaml`; see [chapter 13](13-rebot.md). Connection and cleanup also
+run on the hardware worker, so device calls stay serialized throughout.
+
 ## 1. Receive an action
 
 Portal calls `on_action` for actions that pass the active-operator gate.

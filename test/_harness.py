@@ -57,7 +57,11 @@ def config_yaml(codec: str | None = None) -> str:
     `PORTAL_TEST_CODEC=mjpeg` moves video onto the data channel, which
     isolates a WebRTC media problem from a Portal one.
     """
-    text = CONFIG_PATH.read_text()
+    import yaml
+
+    document = yaml.safe_load(CONFIG_PATH.read_text())
+    document.pop("profiles", None)
+    text = yaml.safe_dump(document, default_flow_style=True)
     codec = codec or os.environ.get("PORTAL_TEST_CODEC") or ""
     if not codec:
         return text

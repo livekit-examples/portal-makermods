@@ -22,6 +22,9 @@ a convenience: the monitor is not a safety system, and it never parks the arms.
 
 Complete [chapter 10](10-voice-tasks.md) first: this chapter uses the same
 `dream-1-tasks` operator and voice agent.
+That operator now uses the single ReBot rig from [chapter 13](13-rebot.md).
+Set `PORTAL_PROFILE=rebot` on the monitor host to subscribe to the same
+seven-value/two-camera contract. The scoring camera remains `overhead_camera`.
 
 ## 1. How it fits
 

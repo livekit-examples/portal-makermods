@@ -14,7 +14,7 @@ import time
 from collections import deque
 from typing import Optional
 
-from utils.common import (CONFIG_PATH, TELEOPERATOR_IDENTITY, HardwareThread, env_int, load_env, mint_token, pace,
+from utils.common import (portal_config, TELEOPERATOR_IDENTITY, HardwareThread, env_int, load_env, mint_token, pace,
                           request_park, required_env)
 from livekit.portal import Operator, OperatorConfig, VideoFrameData, frame_bytes_to_numpy_rgb
 from utils.hotkeys import Hotkeys, input_backend_warning
@@ -125,7 +125,7 @@ async def main() -> None:
     load_env()
     url = required_env("LIVEKIT_URL")
     room = required_env("LIVEKIT_ROOM")
-    cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(OperatorConfig, room, "metal")
     fps = env_int("PORTAL_FPS", cfg.fps)
     cameras = list(cfg.video_tracks)
 

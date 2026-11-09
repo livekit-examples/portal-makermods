@@ -9,6 +9,7 @@ dependencies = [
     "lerobot[hardware]>=0.6.1",
     "numpy>=1.24",
     "python-dotenv>=1",
+    "pyyaml>=6",
     "opencv-python>=4.5",
     "pynput>=1.7",
     "dreamlabs>=1.0.23",        # the `robots` arm driver and `dreamcli`
@@ -19,6 +20,7 @@ dependencies = [
 # `uv run --group voice voice-agent`, and `uv run --group monitor task-monitor`
 [project.scripts]
 robot = "robot:run"
+robot-rebot = "robot_rebot:run"
 teleoperator = "teleoperator:run"
 recorder = "recorder:run"
 dream-1 = "policies.dream_1.run:run"
@@ -34,10 +36,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = ["robot", "teleoperator", "recorder", "voice_agent", "hand_teleop", "task_monitor"]
+py-modules = ["robot", "robot_rebot", "teleoperator", "recorder", "voice_agent", "hand_teleop", "task_monitor"]
 packages = ["utils", "policies", "policies.act", "policies.dream_1", "policies.dream_1_tasks"]
 
 [dependency-groups]
+# Seeed B601-DM's Damiao serial bridge or SocketCAN adapter.
+rebot = ["motorbridge==0.5.6"]
 # Training alone needs no robot, LiveKit connection, or desktop input.
 train = ["lerobot[training]>=0.6.1"]
 # The voice agent (`uv run --group voice voice-agent`): LiveKit Agents and its ai-coustics noise cancellation.

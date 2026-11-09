@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from livekit.portal import Observer, ObserverConfig, frame_bytes_to_numpy_rgb
-from utils.common import (CONFIG_PATH, DREAM_STATUS_RPC, DREAM_TASKS_IDENTITY, MONITOR_IDENTITY, MONITOR_REPORT_RPC,
+from utils.common import (portal_config, DREAM_STATUS_RPC, DREAM_TASKS_IDENTITY, MONITOR_IDENTITY, MONITOR_REPORT_RPC,
                           VOICE_AGENT_IDENTITY, HardwareThread, env_float, env_str, load_env, mint_token, pace,
                           required_env)
 from utils.metal import GRIPPER_MAX_MM, SIDES, arm_fields
@@ -386,7 +386,7 @@ async def main(dry_run: bool) -> None:
     limits = Limits.from_env()
     vlm = env_str("MONITOR_VLM", "Qwen/Qwen3-VL-8B-Instruct")
     camera = env_str("MONITOR_CAMERA", "overhead_camera")
-    cfg = ObserverConfig.from_yaml_file(CONFIG_PATH, room)
+    cfg = portal_config(ObserverConfig, room)
     if camera not in cfg.video_tracks:
         raise RuntimeError(f"MONITOR_CAMERA={camera!r} is not one of portal.yaml's videos: {cfg.video_tracks}")
 

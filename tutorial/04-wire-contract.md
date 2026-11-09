@@ -18,14 +18,22 @@ to a complete camera view.
 ## 2. Load the same schema for every role
 
 ```python
-robot_cfg = RobotConfig.from_yaml_file(CONFIG_PATH, room)
-operator_cfg = OperatorConfig.from_yaml_file(CONFIG_PATH, room)
-observer_cfg = ObserverConfig.from_yaml_file(CONFIG_PATH, room)
+robot_cfg = portal_config(RobotConfig, room, "metal")
+operator_cfg = portal_config(OperatorConfig, room, "metal")
+observer_cfg = portal_config(ObserverConfig, room)
 ```
 
 Teleop, Dream-1, and ACT all use `OperatorConfig`. Mismatched schemas produce
 fingerprint warnings and dropped packets, so deploy schema changes to every
 peer together.
+
+`utils.common.portal_config` loads `portal.yaml`, removes the `profiles` block,
+and passes the selected contract to Portal. The top-level fields are the Metal
+rig; `profiles.rebot` replaces state, action, and videos with seven values and
+two cameras. `robot-rebot` and `dream-1-tasks` explicitly select `rebot`.
+Recorder, task monitor, and ACT use `PORTAL_PROFILE` (default `metal`); set it to
+`rebot` for that room. ReBot grip is normalized **0..1**, unlike Metal's 0..100.
+Do not load this extended YAML directly with Portal's `from_yaml_file`.
 
 ## 3. Preserve training order
 

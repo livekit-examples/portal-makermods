@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from utils.common import CONFIG_PATH, RECORDER_IDENTITY, env_int, env_str, load_env, mint_token, required_env
+from utils.common import portal_config, RECORDER_IDENTITY, env_int, env_str, load_env, mint_token, required_env
 from utils.rerun_view import OBSERVER_VIEWER_PORT
 from livekit.portal import Observer, ObserverConfig
 from livekit.portal.recording import RrdSink
@@ -87,7 +87,7 @@ async def main(observe_only: bool) -> None:
 
     url = required_env("LIVEKIT_URL")
     room = required_env("LIVEKIT_ROOM")
-    obs = Observer(ObserverConfig.from_yaml_file(CONFIG_PATH, room))
+    obs = Observer(portal_config(ObserverConfig, room))
     obs.on_keypoint(lambda kp: print(f"[recorder] {kp.type} {kp.payload} from {kp.sender}"))
 
     identity = "observer" if observe_only else RECORDER_IDENTITY  # never displaces the real recorder
