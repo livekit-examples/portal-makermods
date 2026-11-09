@@ -56,8 +56,9 @@ action:
 profiles:
   rebot:
     videos:
-      - { name: overhead_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
-      - { name: arm_camera, codec: h264, max_bitrate_kbps: 20000, screencast: true }
+      # VP8 also decodes on the Mac hand-teleop host; its H264 path received no frames.
+      - { name: overhead_camera, codec: vp8, max_bitrate_kbps: 20000, screencast: true }
+      - { name: arm_camera, codec: vp8, max_bitrate_kbps: 20000, screencast: true }
     # Six URDF joint angles in radians, then grip 0 closed .. 1 open.
     state: &rebot_fields
       - { name: right_joint1.pos, dtype: f32 }

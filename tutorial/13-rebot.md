@@ -37,6 +37,8 @@ adapter, set `REBOT_TRANSPORT=socketcan` and explicitly set `REBOT_CAN` to its
 link name. There is no default arm or camera device. On macOS, camera settings
 can be numeric indices. `REBOT_CAM_WIDTH` and `REBOT_CAM_HEIGHT` default to
 640 and 480; cameras request MJPG at the Portal frame rate (30 Hz by default).
+Portal publishes these camera frames as VP8 for Linux and Mac viewers. When
+changing the video codec in `portal.yaml`, restart the robot and its peers.
 
 Measure the gripper motor angle at closed and open using Seeed's calibration
 tools and set `REBOT_GRIPPER_CLOSED_RAD` and `REBOT_GRIPPER_OPEN_RAD`. Both are
@@ -135,7 +137,7 @@ If state arrives but synchronized observations do not, compare the transport
 test with `PORTAL_TEST_CODEC=mjpeg`. To try MJPEG on the real rig, replace both
 video entries under `profiles.rebot` with `{name: overhead_camera, codec: mjpeg}`
 and `{name: arm_camera, codec: mjpeg}` on every host; MJPEG entries must omit the
-H264-only bitrate and screencast settings. This helps separate media decoding
+WebRTC-only bitrate and screencast settings. This helps separate media decoding
 or timestamp problems from the arm/schema path.
 
 ---
