@@ -22,6 +22,9 @@ LIMITS = ((-2.6, 2.6), (-3.8, 0.0), (-3.8, 0.0), (-1.57, 1.57), (-1.57, 1.57), (
 # A disabled arm can settle slightly past a boundary after parking at zero.
 # Only startup reads get this margin; home and commanded targets stay inside LIMITS.
 STARTUP_TOL_RAD = math.radians(0.5)
+# The controller's GR register must match the physical reduction. A 4310 with
+# GR=40 reports one quarter of its output travel and defeats joint/speed limits.
+MOTOR_SPECS = (("4340P", 40.0),) * 3 + (("4310", 10.0),) * 4
 
 
 def clamp(values):
@@ -66,11 +69,22 @@ class Arm:
         self.ctrl = (Controller.from_dm_serial(self.channel, 921600) if self.transport == "dm-serial"
                      else Controller(self.channel))
         try:
-            self.motors = [self.ctrl.add_damiao_motor(i, 0x10 + i, "4340P" if i <= 3 else "4310")
-                           for i in range(1, 8)]
+            self.motors = [self.ctrl.add_damiao_motor(i, 0x10 + i, model)
+                           for i, (model, _) in enumerate(MOTOR_SPECS, 1)]
             for i, motor in enumerate(self.motors, 1):
                 if motor.get_register_u32(8, timeout_ms=100) != i:
                     raise RuntimeError(f"motor {i}: unexpected CAN ID")
+            mismatches = []
+            for i, (motor, (model, expected)) in enumerate(zip(self.motors, MOTOR_SPECS, strict=True), 1):
+                ratio = float(motor.get_register_f32(20, timeout_ms=100))
+                if not math.isclose(ratio, expected, rel_tol=1e-4):
+                    mismatches.append(f"motor {i} ({model}): GR={ratio:g}, expected {expected:g}")
+            if mismatches:
+                message = "ReBot gear-ratio mismatch: " + "; ".join(mismatches)
+                if energize:
+                    raise RuntimeError(message + "; refusing to enable: correct the motor parameters and "
+                                       "verify calibration before powered operation")
+                logger.warning("%s; READ ONLY: reported angles are not valid physical joint angles", message)
             present = self.read()
             if present is None:
                 raise RuntimeError("ReBot has no complete pose; check power, IDs, and calibration")

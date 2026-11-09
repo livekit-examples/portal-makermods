@@ -196,6 +196,9 @@ class MotorBridgeTests(unittest.TestCase):
         for i, motor in enumerate(self.arm.motors, 1):
             motor.get_register_u32.return_value = i
             motor.get_register_f32.return_value = -2.5 if i == 7 else REST[i-1]
+            motor.gear_ratio = 40.0 if i <= 3 else 10.0
+            motor.get_register_f32.side_effect = lambda rid, timeout_ms, m=motor: (
+                m.gear_ratio if rid == 20 else m.get_register_f32.return_value)
             motor.get_state.return_value = SimpleNamespace(pos=-2.5 if i == 7 else REST[i-1], status_code=0)
 
     def test_reads_and_commands_use_normalized_gripper(self):
@@ -276,6 +279,48 @@ class MotorBridgeTests(unittest.TestCase):
             self.arm.connect()
         ctrl.disable_all.assert_not_called()
         ctrl.close.assert_called_once()
+
+    def test_bad_gear_ratio_blocks_all_control_writes(self):
+        for wrong in (40.0, 0.0, float("nan")):
+            with self.subTest(ratio=wrong):
+                self.setUp()
+                module, ctrl = self.driver_module()
+                motors = list(self.arm.motors)
+                motors[4].gear_ratio = wrong
+                with patch.dict("sys.modules", {"motorbridge": module}), self.assertRaisesRegex(
+                        RuntimeError, r"motor 5 \(4310\): GR=.*expected 10"):
+                    self.arm.connect()
+                ctrl.enable_all.assert_not_called()
+                ctrl.disable_all.assert_not_called()
+                for motor in motors:
+                    motor.send_pos_vel.assert_not_called()
+                    motor.write_register_f32.assert_not_called()
+                    motor.ensure_mode.assert_not_called()
+
+    def test_unreadable_gear_ratio_never_enables(self):
+        module, ctrl = self.driver_module()
+        self.arm.motors[4].get_register_f32.side_effect = TimeoutError("no gear-ratio reply")
+        with patch.dict("sys.modules", {"motorbridge": module}), self.assertRaises(TimeoutError):
+            self.arm.connect()
+        ctrl.enable_all.assert_not_called()
+        for motor in self.arm.motors:
+            motor.send_pos_vel.assert_not_called()
+            motor.write_register_f32.assert_not_called()
+            motor.ensure_mode.assert_not_called()
+
+    def test_bad_gear_ratio_allows_read_only_diagnosis_with_warning(self):
+        module, ctrl = self.driver_module()
+        motors = list(self.arm.motors)
+        motors[4].gear_ratio = 40.0
+        with patch.dict("sys.modules", {"motorbridge": module}), self.assertLogs("utils.rebot", "WARNING") as logs:
+            self.arm.connect(False)
+        self.assertTrue(any("not valid physical joint angles" in line for line in logs.output))
+        self.arm.close()
+        ctrl.enable_all.assert_not_called()
+        for motor in motors:
+            motor.send_pos_vel.assert_not_called()
+            motor.write_register_f32.assert_not_called()
+            motor.ensure_mode.assert_not_called()
 
     def test_small_startup_settling_clamps_home_and_all_targets(self):
         module, ctrl = self.driver_module()

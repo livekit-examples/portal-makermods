@@ -14,6 +14,21 @@ motors are 4340P; the wrist and gripper motors are 4310, following Seeed's
 This app uses MotorBridge directly, in POS_VEL mode, without the SDK's
 background control thread or automatic return-to-zero on disconnect.
 
+Before any enable or motor configuration write, startup reads the gear ratio
+(Damiao register 20): motors 1–3 must report 40 and motors 4–7 must report 10,
+matching their physical reductions. A DM4310 incorrectly configured as 40:1
+can move roughly four times its reported angle, invalidating software joint
+and speed limits. A mismatch or unreadable ratio blocks powered startup.
+Read-only diagnostics remain available for a mismatch, with a warning that
+the reported angles are not valid physical joint angles.
+
+If this check fails, keep the motors disabled and restore the correct
+model-specific motor parameters through the manufacturer's supported tools;
+see Seeed's [motor-parameter recovery guidance](https://wiki.seeedstudio.com/rebot_b601_dm_getting_started/#faq).
+Do not bypass the check with wider limits or a kinematics sign/scale change.
+After correction, verify physical output travel against feedback and recheck
+joint zeros and gripper endpoints before any powered test.
+
 Install the optional driver:
 
 ```bash
