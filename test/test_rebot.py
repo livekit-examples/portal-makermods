@@ -1,9 +1,6 @@
 """Single-arm wire mapping and hardware safety, without a robot or API key."""
-import json
 import os
-import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -22,11 +19,7 @@ class MappingTests(unittest.TestCase):
     def setUp(self):
         self.cfg = portal_config(OperatorConfig, "test", "rebot")
         self.fields = fields_from_config(self.cfg)
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        arm_file = Path(self.tmp.name) / "arm.json"
-        arm_file.write_text(json.dumps({"rest": REST[:6]}))
-        self.mapping = RebotMapping(self.cfg, str(arm_file))
+        self.mapping = RebotMapping(self.cfg)
 
     def test_all_roles_share_one_arm_two_cameras(self):
         for cls in (RobotConfig, OperatorConfig, ObserverConfig):
@@ -47,11 +40,14 @@ class MappingTests(unittest.TestCase):
         obs = self.mapping.observation(state, "pick the cube")
         self.assertEqual(obs["state.right_grip"], [0.5])
         self.assertEqual(obs["state.right_arm"], REST[:6])
-        self.assertEqual(obs["state.left_arm"], REST[:6])
+        from dream_ik.specs import EMBODIMENTS
+        self.assertEqual(obs["state.left_arm"], list(EMBODIMENTS["seeed_faas"].side_arm("left").rest_pose))
         self.assertEqual(obs["state.left_grip"], [0.0])
         self.assertTrue(all(key.startswith("right_") for key in self.mapping.to_robot(REST)))
         policy = self.mapping.policy_config("dreamlabs/dream-1-beta", 20)
-        self.assertEqual(policy["ik"], {"arm": self.mapping.arm_file, "head": "eef"})
+        self.assertEqual(policy["ik"], {"arm": "seeed_faas", "head": "eef"})
+        from dream.client_ik import check_config
+        check_config(policy["ik"])
         self.assertEqual(set(policy["embodiment"]["video"]), {"overhead", "wrist_l", "wrist_r"})
 
     def test_limits_are_rebot_limits_and_nan_is_rejected(self):

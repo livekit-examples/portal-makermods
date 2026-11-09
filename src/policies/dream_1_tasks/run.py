@@ -168,7 +168,7 @@ async def main() -> None:
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
     cfg = portal_config(OperatorConfig, room, "rebot")
-    mapping = RebotMapping(cfg, required_env("REBOT_ARM_FILE"))
+    mapping = RebotMapping(cfg)
     fps = env_int("PORTAL_FPS", cfg.fps)
     # Per-tick cap on the commanded target: joints in rad, grips 5% of their range per row.
     max_step = np.array([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6 + [0.05 * ROW_HZ / fps])

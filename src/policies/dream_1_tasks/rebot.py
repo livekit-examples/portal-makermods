@@ -3,9 +3,6 @@
 Only the right output reaches Portal. The absent left arm has a fixed model
 pose and a black wrist view; these placeholders never enter recordings.
 """
-import json
-from pathlib import Path
-
 import dream
 import numpy as np
 
@@ -13,22 +10,23 @@ from policies.dream_1.run import embodiment, encode_frame
 from utils.rebot import clamp, fields_from_config
 
 CAMERAS = {"overhead": "overhead_camera", "wrist_r": "arm_camera"}
+IK_ARM = "seeed_faas"  # Dream's built-in Seeed reBot B601-DM, in DM motor radians.
 
 
 class RebotMapping:
-    def __init__(self, cfg, arm_file: str):
+    def __init__(self, cfg):
+        from dream_ik.specs import EMBODIMENTS
+
         self.fields = fields_from_config(cfg)
-        self.arm_file = str(Path(arm_file).expanduser().resolve())
-        spec = json.loads(Path(self.arm_file).read_text())
-        rest = np.asarray(spec["rest"], dtype=float)
+        rest = np.asarray(EMBODIMENTS[IK_ARM].side_arm("left").rest_pose, dtype=float)
         if rest.shape != (6,) or not np.isfinite(rest).all():
-            raise ValueError("REBOT_ARM_FILE must describe six joints in URDF order")
+            raise ValueError("Dream's ReBot spec must describe six joints in motor radians")
         self.left_rest = rest.tolist()
         self.blank_wrist = encode_frame(np.zeros((176, 320, 3), dtype=np.uint8))
 
     def policy_config(self, checkpoint, row_hz):
         return {"checkpoint": checkpoint, "embodiment": embodiment(),
-                "ik": {"arm": self.arm_file, "head": "eef"}, "action_hz": row_hz}
+                "ik": {"arm": IK_ARM, "head": "eef"}, "action_hz": row_hz}
 
     def to_model(self, state):
         values = np.asarray([state[name] for name in self.fields], dtype=float)

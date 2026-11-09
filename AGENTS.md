@@ -15,7 +15,8 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 - `src/policies/act/` contains training (`train.py`), the operator (`run.py`, `uv run act`), and a SkyPilot example.
 - `src/policies/dream_1/` runs Dream Labs' Dream-1 (`run.py`, `uv run dream-1`) with the dream client's `metal` IK.
 - `src/policies/dream_1_tasks/` drives the single ReBot with a switchable task (`uv run dream-1-tasks`); its
-  RebotMapping uses a custom Dream arm file and pads the base model's absent left arm/view, never Portal data.
+  RebotMapping uses Dream's built-in `seeed_faas` B601-DM model and pads the base model's absent left arm/view,
+  never Portal data.
   It answers the `dream.*`
   RPCs named in `src/utils/common.py`: set the task, pause, resume, hand control to the teleoperator or the webcam
   hand teleop (`src/hand_teleop.py`, identity from `hand_teleop_identity()`), take it from the hand teleop.

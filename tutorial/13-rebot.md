@@ -46,34 +46,21 @@ Portal carries the gripper as **0 closed to 1 open**, not millimetres.
 
 ## 2. Configure ReBot kinematics for Dream-1
 
-The B601-DM is not a Metal arm. `dream-1-tasks` requires `REBOT_ARM_FILE`, the
-absolute path of Dream's custom arm JSON, referencing the B601-DM URDF.
-Get the matching URDF from Seeed's
-[SDK repository](https://github.com/vectorBH6/reBotArm_control_py/tree/main/urdf),
-then open Dream's tool-point setup:
-
-```bash
-uv run dreamcli tcp
-```
-
-Load the B601-DM URDF, select `base_link` as the base and `link6` as the flange,
-and mark the tool center between the closed fingertips and its approach/jaw
-directions. Save the arm file and use the path the tool prints:
+`dream-1-tasks` selects Dream's built-in **`seeed_faas`** model for the Seeed
+reBot B601-DM. It includes the arm's kinematics, tool point, and joint conventions;
+no custom URDF upload or arm JSON is needed. Set the API key on the policy host:
 
 ```dotenv
-REBOT_ARM_FILE=/absolute/path/to/arms/rebot.json
 DREAM_API_KEY=YOUR_DREAM_KEY
 ```
 
-The file describes `urdf`, `base`, `flange`, `tcp`, `approach`, `jaw`, and a
-six-joint `rest` pose, all in URDF order/units. The URDF path is relative to the
-JSON file. Keep the JSON and URDF together when copying them to the policy
-host. Confirm the URDF's joint signs/zeros match your calibrated hardware;
-`rest` is an IK preference, separate from the robot's startup parking pose.
+The driver supplies six DM motor angles in radians and a normalized gripper.
+Joint-zero and gripper-endpoint calibration in step 1 is still required. Dream's
+rest pose is an IK preference, separate from the robot's startup parking pose.
 
 The installed Dream client and base checkpoint use a bimanual interface.
 `RebotMapping` supplies the real arm as `right_arm` and the real arm camera as
-`wrist_r`. It pads the absent left arm with a fixed pose from the arm file and
+`wrist_r`. It pads the absent left arm with the built-in model's left rest pose and
 a black `wrist_l` image, and discards all left-arm actions. Only seven real
 state/action values and the two real videos cross Portal or reach a recorder.
 This is a compatibility adapter for the base model, not a checkpoint trained

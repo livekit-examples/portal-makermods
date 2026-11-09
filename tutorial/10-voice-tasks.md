@@ -97,7 +97,7 @@ LIVEKIT_INFERENCE_API_SECRET=YOUR_CLOUD_API_SECRET
 
 ## 3. Start the task-switching Dream-1
 
-Keep `robot-rebot` running. On the **policy host**, set `REBOT_ARM_FILE` as in
+Keep `robot-rebot` running. On the **policy host**, configure Dream as in
 [chapter 13](13-rebot.md), give the session's tasks, then check the targets
 without moving:
 
