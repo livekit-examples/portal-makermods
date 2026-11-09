@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Seeed's rebotDM.yaml soft limits, not Metal's limits (notably joint3).
 LIMITS = ((-2.6, 2.6), (-3.8, 0.0), (-3.8, 0.0), (-1.57, 1.57), (-1.57, 1.57), (-2.6, 2.6), (0.0, 1.0))
+# A disabled arm can settle slightly past a boundary after parking at zero.
+# Only startup reads get this margin; home and commanded targets stay inside LIMITS.
+STARTUP_TOL_RAD = math.radians(0.5)
 
 
 def clamp(values):
@@ -68,10 +71,20 @@ class Arm:
             present = self.read()
             if present is None:
                 raise RuntimeError("ReBot has no complete pose; check power, IDs, and calibration")
-            if any(not lo - 0.001 <= value <= hi + 0.001 for value, (lo, hi) in zip(present, LIMITS)):
-                raise RuntimeError("ReBot startup pose is outside its soft limits; check joint zero calibration")
+            outside = [f"joint{i}={value:+.6f} rad (limit [{lo:g}, {hi:g}])"
+                       for i, (value, (lo, hi)) in enumerate(zip(present[:6], LIMITS[:6]), 1)
+                       if not lo - STARTUP_TOL_RAD <= value <= hi + STARTUP_TOL_RAD]
+            if outside:
+                raise RuntimeError("ReBot startup pose is outside its soft limits plus 0.5 deg settling margin: "
+                                   + "; ".join(outside) + "; check the resting pose and joint zero calibration")
             if any(motor.get_state().status_code != 0 for motor in self.motors):
                 raise RuntimeError("ReBot is already powered; support it and cycle power before restarting")
+            bounded = clamp(present)
+            for i, (value, target) in enumerate(zip(present[:6], bounded[:6]), 1):
+                if value != target:
+                    logger.warning("ReBot joint%d at %+.6f rad is within the startup settling margin; "
+                                   "home/hold target clamped to %+.6f rad", i, value, target)
+            present = bounded
             self.rest = present[:6]
             if energize:
                 for i, motor in enumerate(self.motors):
@@ -162,7 +175,8 @@ class Follower(Followers):
         try:
             for camera in self.cameras.values():
                 try:
-                    camera._cam.disconnect()
+                    if camera._cam.is_connected or camera._cam.thread is not None:
+                        camera._cam.disconnect()
                 except Exception as exc:
                     logger.warning("camera cleanup: %s", exc)
         finally:

@@ -129,6 +129,18 @@ class FollowerTests(unittest.TestCase):
         self.arm.command.assert_called_once()
         self.arm.switch_off.assert_not_called()
 
+    def test_failed_connect_cleanup_is_safe_to_repeat(self):
+        camera = Mock(is_connected=False, thread=None)
+        camera.connect.side_effect = lambda: setattr(camera, "is_connected", True)
+        camera.disconnect.side_effect = lambda: setattr(camera, "is_connected", False)
+        self.follower.cameras = {"overhead_camera": SimpleNamespace(_cam=camera)}
+        self.arm.connect.side_effect = RuntimeError("startup outside limits")
+        with self.assertRaisesRegex(RuntimeError, "outside limits"):
+            self.follower.connect()
+        self.follower.disconnect()  # robot's finally block
+        camera.disconnect.assert_called_once()
+        self.arm.switch_off.assert_not_called()
+
 
 class MotorBridgeTests(unittest.TestCase):
     def setUp(self):
@@ -200,6 +212,35 @@ class MotorBridgeTests(unittest.TestCase):
             self.arm.connect()
         ctrl.disable_all.assert_not_called()
         ctrl.close.assert_called_once()
+
+    def test_small_startup_settling_clamps_home_and_all_targets(self):
+        module, ctrl = self.driver_module()
+        motor = self.arm.motors[2]
+        motor.get_register_f32.return_value = 0.004669189453125
+        with patch.dict("sys.modules", {"motorbridge": module}):
+            self.arm.connect()
+        self.assertEqual(self.arm.rest[2], 0.0)
+        self.assertEqual(motor.send_pos_vel.call_count, 2)
+        for call in motor.send_pos_vel.call_args_list:
+            self.assertEqual(call.kwargs["pos"], 0.0)
+        ctrl.enable_all.assert_called_once()
+
+    def test_startup_outside_margin_identifies_joint_and_never_writes(self):
+        for joint, position in ((3, 0.02), (1, -2.62)):
+            with self.subTest(joint=joint, position=position):
+                self.setUp()
+                module, ctrl = self.driver_module()
+                motors = list(self.arm.motors)
+                motors[joint - 1].get_register_f32.return_value = position
+                with patch.dict("sys.modules", {"motorbridge": module}), self.assertRaisesRegex(
+                        RuntimeError, f"joint{joint}=.*limit"):
+                    self.arm.connect()
+                ctrl.enable_all.assert_not_called()
+                ctrl.disable_all.assert_not_called()
+                for motor in motors:
+                    motor.send_pos_vel.assert_not_called()
+                    motor.ensure_mode.assert_not_called()
+                    motor.write_register_f32.assert_not_called()
 
     def test_bad_startup_read_never_enables(self):
         module, ctrl = self.driver_module()

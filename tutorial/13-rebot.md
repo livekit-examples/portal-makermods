@@ -80,7 +80,11 @@ uv run --group rebot robot-rebot
 The app reads every motor before enabling, seeds the position targets from
 that pose, and captures it as home. An already enabled arm is rejected; after
 a failed park, support it and cycle power before restarting. It begins with
-no active operator. In a second terminal:
+no active operator. A resting joint up to 0.5° beyond a soft limit is accepted
+with a warning, and its home/hold target is clamped to the limit. A larger
+offset stops startup and reports the joint, reading, and limits; check the
+resting pose and calibration before retrying. Commanded targets always remain
+inside the soft limits. In a second terminal:
 
 ```bash
 uv run dream-1-tasks --dry-run --task "put the blue cube in the box"
