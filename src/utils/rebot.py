@@ -51,6 +51,7 @@ class Arm:
         self.closed, self.opened = closed, opened
         self.errors, self.energized = 0, False
         self.rest = None
+        self._gripper_rad = None  # raw feedback, before normalization hides out-of-range readings
         self.ctrl = None
         self.motors = []
         self.speed = env_float("REBOT_SPEED_RAD_S", 0.5)
@@ -74,6 +75,10 @@ class Arm:
             outside = [f"joint{i}={value:+.6f} rad (limit [{lo:g}, {hi:g}])"
                        for i, (value, (lo, hi)) in enumerate(zip(present[:6], LIMITS[:6]), 1)
                        if not lo - STARTUP_TOL_RAD <= value <= hi + STARTUP_TOL_RAD]
+            grip_lo, grip_hi = sorted((self.closed, self.opened))
+            if not grip_lo - STARTUP_TOL_RAD <= self._gripper_rad <= grip_hi + STARTUP_TOL_RAD:
+                outside.append(f"gripper={self._gripper_rad:+.6f} rad "
+                               f"(calibrated range [{grip_lo:g}, {grip_hi:g}])")
             if outside:
                 raise RuntimeError("ReBot startup pose is outside its soft limits plus 0.5 deg settling margin: "
                                    + "; ".join(outside) + "; check the resting pose and joint zero calibration")
@@ -115,6 +120,7 @@ class Arm:
                 values.append(float(position))
             if len(values) != 7 or not all(map(math.isfinite, values)):
                 raise RuntimeError("incomplete or nonfinite joint feedback")
+            self._gripper_rad = values[6]
             values[6] = min(max((values[6] - self.closed) / (self.opened - self.closed), 0.0), 1.0)
             return values
         except Exception as exc:

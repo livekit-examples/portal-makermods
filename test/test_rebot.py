@@ -242,6 +242,22 @@ class MotorBridgeTests(unittest.TestCase):
                     motor.ensure_mode.assert_not_called()
                     motor.write_register_f32.assert_not_called()
 
+    def test_raw_gripper_outside_calibration_never_enables(self):
+        for position in (1.868, -5.1):
+            with self.subTest(position=position):
+                self.setUp()
+                module, ctrl = self.driver_module()
+                motors = list(self.arm.motors)
+                motors[-1].get_register_f32.return_value = position
+                with patch.dict("sys.modules", {"motorbridge": module}), self.assertRaisesRegex(
+                        RuntimeError, "gripper=.*calibrated range"):
+                    self.arm.connect()
+                ctrl.enable_all.assert_not_called()
+                for motor in motors:
+                    motor.send_pos_vel.assert_not_called()
+                    motor.ensure_mode.assert_not_called()
+                    motor.write_register_f32.assert_not_called()
+
     def test_bad_startup_read_never_enables(self):
         module, ctrl = self.driver_module()
         self.arm.motors[2].get_register_u32.side_effect = TimeoutError()

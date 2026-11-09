@@ -45,6 +45,10 @@ tools and set `REBOT_GRIPPER_CLOSED_RAD` and `REBOT_GRIPPER_OPEN_RAD`. Both are
 required radians in the configured -5.2..0 motor range, and must differ.
 Neither a zero calibration nor a gripper calibration is performed at startup.
 Portal carries the gripper as **0 closed to 1 open**, not millimetres.
+Startup also checks the raw gripper angle against those measured endpoints,
+before normalization can hide an out-of-range reading. If startup fails after
+cycling motor power, verify the reference pose and calibration retention;
+do not widen limits or reset zeros in an arbitrary pose to bypass the check.
 
 ## 2. Configure ReBot kinematics for Dream-1
 
