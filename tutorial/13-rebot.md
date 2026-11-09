@@ -2,7 +2,7 @@
 
 This rig uses one B601-DM (Damiao motors), one overhead USB camera, and one
 camera on the arm. Run `robot-rebot` for the hardware and `dream-1-tasks` for
-the policy. The original `robot`, `teleoperator`, `hand-teleop`, and `dream-1`
+the policy. The original `robot`, `teleoperator`, and `dream-1`
 apps still describe the Metal rig; do not join them to the ReBot room.
 
 ## 1. Prepare the arm and cameras
@@ -90,8 +90,11 @@ then restart without `--dry-run` and press `c` when ready. `1`–`9` select
 repeated `--task` presets; changing a task releases control and needs another
 `c` or an explicit voice resume. The [voice agent](10-voice-tasks.md) can set
 tasks, pause, resume, home, and park this robot using the existing RPCs.
-Human handoff RPCs remain available for a ReBot-compatible operator, but the
-repository's Metal leader and webcam-hand operators are not ReBot drivers.
+For webcam hand control, run `uv run --group hands hand-teleop --profile rebot`
+on the webcam host (or set `PORTAL_PROFILE=rebot` there). It shows the overhead
+and arm videos, uses the right hand to drive the single arm, and supports the
+voice handoff RPCs. See [chapter 11](11-hand-teleop.md). The Metal leader-arm
+`teleoperator` is not a ReBot driver.
 
 `p` releases control and walks back to the startup pose before disabling
 motors. `p` again powers up, holding the current resting pose. `home` does the

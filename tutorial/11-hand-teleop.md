@@ -2,6 +2,8 @@
 
 `src/hand_teleop.py` is an operator like the leader-arm teleop, driven by a laptop webcam instead.
 MediaPipe tracks up to two hands; your right hand drives the right arm, your left hand the left.
+`PORTAL_PROFILE` (or `--profile`) selects the rig: `metal` for the pair, `rebot` for
+one B601-DM driven by your right hand. ReBot ignores the left hand.
 
 - **Grip:** curl middle, ring and pinky all the way into your palm, leaving thumb and index as a
   gripper. After three frames the arm follows that hand. A half curl does nothing.
@@ -52,6 +54,18 @@ With the robot running (chapter 1), on any machine with a webcam and the repo's 
 uv run --group hands hand-teleop
 ```
 
+For the single ReBot, use the same LiveKit URL and room as `robot-rebot`, and run:
+
+```bash
+uv run --group hands hand-teleop --profile rebot
+```
+
+This selects `overhead_camera` and `arm_camera`, Dream's built-in B601-DM IK,
+and the robot's normalized gripper units. It also works with `--offline`.
+The startup line prints the selected profile and expected camera tracks. A
+Metal profile cannot synchronize the ReBot's observations because it expects
+a second arm and different wrist tracks.
+
 Its window shows the robot's cameras beside the webcam, apart from any window the teleoperator or
 `recorder --observe-only` has open. Press `c` to take control (and again to release it), as in a
 policy; `p` parks, `x` quits. With [chapter 10](10-voice-tasks.md)'s voice agent and
@@ -76,6 +90,7 @@ gripping again with an open hand does not drop what the arm holds. The label say
 
 | Setting | Default | Purpose |
 |---|---|---|
+| `PORTAL_PROFILE` / `--profile` | `metal` | Rig: Metal pair or single `rebot`; selects the cameras, joints, and IK |
 | `HAND_CAMERA` | `0` | Webcam index (`/dev/videoN` on Linux), or a video file played in real time |
 | `HAND_ROTATE` / `--rotate` | `full` | `full` turns the gripper as the hand turns; `yaw` only about vertical; `off` keeps its orientation |
 | `HAND_TURN_DEADBAND_DEG` | `5` | Turns of the hand smaller than this do nothing; larger ones count from here |
@@ -96,7 +111,7 @@ gripping again with an open hand does not drop what the arm holds. The label say
 clutch (finger curl as tip-to-wrist over knuckle-to-wrist: about 1.8 straight, below 1.0 once the
 tip folds back past its knuckle into the palm; closing below 1.0 and opening above 1.15), the palm's
 position, the palm's turn (axes from the wrist and knuckles), 1€ filters, the mapping into each
-arm's base frame, and the IK: `dream_ik`'s `ChunkIK` for the Metal arm, one tick per call, the same
+arm's base frame, and the IK: `dream_ik`'s `ChunkIK` for the selected Metal or B601-DM arm, one tick per call, the same
 solver Dream-1's client uses (chapter 2), with the turn weighed lower than the place: at the
 solver's own weights a hand tilted past what the arm can do from its rest pose drags the tool up to
 11 cm.

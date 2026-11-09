@@ -388,6 +388,63 @@ class IKTests(unittest.TestCase):
         self.assertGreater(reachable["right"][2, 3], 0.0)
 
 
+class RebotPilotTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ik = ArmsIK(30, table_z_m=0.0, max_joint_rad_s=0.5, profile="rebot")
+        cls.ik.warmup()
+
+    def setUp(self):
+        self.pilot = build_pilot(30, self.ik, "off", 640)
+        self.state = dict(zip(arm_fields("right"), [0.0, -0.6, -1.0, 0.7, 0.0, 0.0, 0.4]))
+        self.seq = 0
+
+    def sight(self, label="right", pinch_m=0.09):
+        self.seq += 1
+        now = 100.0 + self.seq / 30
+        hand = project(hand_world(pinch_m=pinch_m), np.array([0.0, 0.0, 0.5]))
+        hand = Hand(label, hand.image, hand.world)
+        self.pilot.see(Sighting(self.seq, now, np.zeros((480, 640, 3), np.uint8), [hand]), now)
+
+    def test_single_arm_ik_and_two_camera_contract(self):
+        from livekit.portal import OperatorConfig
+        from utils.common import portal_config
+        cfg = portal_config(OperatorConfig, "test", "rebot")
+        self.assertEqual(set(cfg.video_tracks), {"overhead_camera", "arm_camera"})
+        self.assertEqual(self.ik._ik.sides, ("right",))
+        for _ in range(3):
+            self.sight()
+        action = self.pilot.tick(True, self.state)
+        self.assertEqual(set(action), {f.name for f in cfg.action_schema})
+        self.assertAlmostEqual(action["right_gripper.pos"], 0.4, msg="open pinch must not jump the gripper")
+        self.assertLess(action["right_joint3.pos"], 0, "use ReBot's negative elbow limits")
+        for name in arm_fields("right")[:6]:
+            self.assertLessEqual(abs(action[name] - self.state[name]), 0.5 / 30 + 1e-6)
+
+    def test_left_hand_and_incomplete_state_never_drive(self):
+        for _ in range(3):
+            self.sight(label="left")
+        self.assertIsNone(self.pilot.tick(True, self.state))
+        for _ in range(3):
+            self.sight()
+        self.assertIsNone(self.pilot.tick(False, self.state))
+        self.assertIsNone(self.pilot.tick(True, {"right_gripper.pos": 0.4}))
+        self.assertIsNotNone(self.pilot.tick(True, self.state))
+        self.pilot.drop()
+        self.assertIsNone(self.pilot.tick(True, None))
+
+    def test_gripper_takeover_converts_normalized_units_both_ways(self):
+        for _ in range(3):
+            self.sight(pinch_m=0.054)  # 40% of the 3..9 cm pinch span
+        action = self.pilot.tick(True, self.state)
+        self.assertAlmostEqual(action["right_gripper.pos"], 0.4, places=5)
+        for _ in range(60):
+            self.sight(pinch_m=0.09)
+            action = self.pilot.tick(True, self.state)
+        self.assertGreater(action["right_gripper.pos"], 0.95)
+        self.assertLessEqual(action["right_gripper.pos"], 1.0)
+
+
 class PilotTests(unittest.TestCase):
     """The whole chain but MediaPipe: synthetic sightings in, Portal actions out."""
 

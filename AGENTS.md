@@ -36,8 +36,8 @@ Update affected chapters with behavior changes.
 ## Rules
 
 - All peers load `portal.yaml` through `utils.common.portal_config`; do not duplicate schema field lists in Python.
-  Top-level fields are Metal; `profiles.rebot` overrides them for ReBot. Recorder, monitor, and ACT use
-  `PORTAL_PROFILE`; the hardware-specific apps select their profile explicitly.
+  Top-level fields are Metal; `profiles.rebot` overrides them for ReBot. Recorder, monitor, ACT, and hand teleop use
+  `PORTAL_PROFILE` (hand teleop also accepts `--profile`); the hardware-specific apps select their profile explicitly.
 - Model tensors use training dataset order, read from `meta/info.json`.
 - Control is explicit: `c` selects an operator, `p` parks or powers up the arms. No background auto-claim loop.
   A task change releases Dream-1's control first; only an explicit resume (`c`, or "continue") gives it back.

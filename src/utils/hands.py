@@ -467,7 +467,7 @@ class ArmFollower:
 
 
 class ArmsIK:
-    """Both Metal arms' IK one tick at a time: dream_ik's ChunkIK on the tool point between the fingertips.
+    """The selected rig's IK one tick at a time: dream_ik's ChunkIK on the tool point between the fingertips.
 
     `table_z_m` is a floor under each arm, in its base frame (0 is the base's underside, so the table
     it stands on): targets are clipped above it and the solve keeps the arm's centreline off it. There
@@ -481,23 +481,33 @@ class ArmsIK:
 
     TURN_WEIGHT = 4.0
 
-    def __init__(self, fps: float, table_z_m: float, max_joint_rad_s: float) -> None:
+    def __init__(self, fps: float, table_z_m: float, max_joint_rad_s: float, profile: str = "metal") -> None:
         import jax.numpy as jnp  # lazy: JAX
         from dream_ik.solver import ChunkIK
-        from dream_ik.specs import Region
+        from dream_ik.specs import EMBODIMENTS, Embodiment, Region
 
+        if profile not in ("metal", "rebot"):
+            raise ValueError(f"unsupported hand-teleop profile: {profile}")
+        self.profile = profile
+        self.sides = ("right",) if profile == "rebot" else SIDES
+        model = "metal"
+        if profile == "rebot":
+            # Use Dream's built-in DM chain/tool point, with only the physical right arm.
+            model = "portal_rebot_right"
+            EMBODIMENTS.setdefault(model, Embodiment(arm=EMBODIMENTS["seeed_faas"].side_arm("right"),
+                                                   sides=self.sides, obstacles={"right": ()}))
         floor = (Region(lo=(None, None, table_z_m)),)
-        self._ik = ChunkIK("metal", "tcp", hz=fps, obstacles={side: floor for side in SIDES})
+        self._ik = ChunkIK(model, "tcp", hz=fps, obstacles={side: floor for side in self.sides})
         for group in self._ik._groups:  # dream_ik keeps its weights internal (pinned in uv.lock)
             group.w = {**group.w, "ori": jnp.full_like(group.w["ori"], self.TURN_WEIGHT)}
-        self._rows = [self._ik.sides.index(side) for side in SIDES]  # the IK orders sides (right, left)
+        self._rows = [self._ik.sides.index(side) for side in self.sides]  # the IK orders sides (right, left)
         self.max_joint_rad_s = max_joint_rad_s
         self.rest = self._ik.side_rest[self._rows[0]].copy()
 
     def warmup(self) -> None:
         """Compile the one-tick solve and the FK (several seconds the first time, cached after)."""
         self._ik.warmup(1)
-        for side in SIDES:
+        for side in self.sides:
             self.fk(self.rest, side)
 
     def fk(self, q: np.ndarray, side: str) -> np.ndarray:
@@ -507,11 +517,11 @@ class ArmsIK:
              ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """One tick toward each side's goal (4, 4) from its joints `q` (6,). Returns the joints to
         command (speed capped, floor fenced) and the tool pose the unconstrained answer reaches."""
-        targets, q0 = np.empty((2, 1, 4, 4)), np.empty((2, 6))
-        for side, row in zip(SIDES, self._rows):
+        targets, q0 = np.empty((len(self.sides), 1, 4, 4)), np.empty((len(self.sides), 6))
+        for side, row in zip(self.sides, self._rows):
             targets[row, 0], q0[row] = goals[side], q[side]
         targets = self._ik.clip_to_region(targets, self._ik.collision_margin)
         result = self._ik.solve(targets, q0, self.max_joint_rad_s)
         command, _ = self._ik.fence_region(result.q, q0, slack=0.01)
-        return ({side: command[row, 0].copy() for side, row in zip(SIDES, self._rows)},
-                {side: self.fk(result.q_solution[row, 0], side) for side, row in zip(SIDES, self._rows)})
+        return ({side: command[row, 0].copy() for side, row in zip(self.sides, self._rows)},
+                {side: self.fk(result.q_solution[row, 0], side) for side, row in zip(self.sides, self._rows)})
