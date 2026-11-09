@@ -132,6 +132,33 @@ this seven-value/two-camera contract; Metal checkpoints are incompatible.
 
 ## 4. Hardware-free checks
 
+For unexpected movement, stop the controllers and engage the e-stop. Before
+another powered test, inspect the requested targets with the supported arm's
+motors disabled. Stop the normal robot app, restore motor supply for encoder
+reads, and run this diagnostic in its place:
+
+```bash
+uv run --group rebot robot-rebot --read-only
+```
+
+It streams both cameras and measured state, but never enables motors, changes
+their mode/gains, or sends movement commands. Already enabled motors are
+rejected at startup. `p`, home, park, and shutdown cannot move or enable the
+arm in this mode. Keep the links supported: this mode provides no holding
+torque. Do not run another hardware driver alongside it.
+
+Select hand teleop or Dream with `c` as usual to capture its requested actions.
+For Dream, omit the policy's `--dry-run` so actions reach the diagnostic robot;
+the robot's `--read-only` blocks them at the hardware boundary. Each action
+tick writes `time_ns`, `requested`, and `measured` to the printed
+`data/rebot/actions-*.jsonl` path (six joint radians and normalized grip).
+Missing feedback is recorded as an empty `measured` object. Use
+`--trace data/rebot/hand-check.jsonl` to choose a new file; existing files are
+never overwritten. These traces separate operator targets from motor response,
+but do not validate physical joint direction or establish safe powered motion.
+
+Run the software tests without hardware:
+
 ```bash
 uv run python -m unittest test.test_rebot test.test_dream1 test.test_dream1_tasks
 uv run python -m test.test_resilience

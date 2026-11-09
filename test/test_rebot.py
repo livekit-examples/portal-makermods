@@ -1,5 +1,7 @@
 """Single-arm wire mapping and hardware safety, without a robot or API key."""
 import os
+import io
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -10,7 +12,7 @@ from livekit.portal import ObserverConfig, OperatorConfig, RobotConfig
 
 from policies.dream_1_tasks.rebot import CAMERAS, RebotMapping, chunk_rows
 from utils.common import portal_config
-from utils.rebot import Arm, Follower, LIMITS, fields_from_config
+from utils.rebot import Arm, Follower, ReadOnlyFollower, LIMITS, fields_from_config
 
 REST = [0.0, -0.4, -0.5, 0.0, 0.0, 0.0, 0.5]
 
@@ -141,6 +143,50 @@ class FollowerTests(unittest.TestCase):
         camera.disconnect.assert_called_once()
         self.arm.switch_off.assert_not_called()
 
+    def test_read_only_blocks_actions_and_all_power_paths_but_traces_requests(self):
+        from robot import ParkRequests
+        from utils.common import PARK_ONLY, PARK_TOGGLE
+
+        trace = io.StringIO()
+        follower = ReadOnlyFollower(self.arm, {}, self.fields, 0.03, trace)
+        follower.connect()
+        self.arm.connect.assert_called_once_with(False)
+        self.assertTrue(follower.parked)
+        state, _ = follower.get_observation()
+        action = {**state, self.fields[4]: -1.0}
+        follower.send_action(action)
+        self.arm.read.return_value = None
+        follower.get_observation()
+        follower.send_action(action)
+        rows = [json.loads(line) for line in trace.getvalue().splitlines()]
+        self.assertEqual(rows[0]["requested"], action)
+        self.assertEqual(rows[0]["measured"], state)
+        self.assertEqual(rows[1]["measured"], {})
+        requests = ParkRequests(follower)
+        for payload in (PARK_ONLY, PARK_TOGGLE):
+            self.assertIn("read-only", requests.ask("operator", payload))
+            self.assertIsNone(requests.take())
+        self.assertIn("read-only", requests.home("operator"))
+        self.assertIsNone(requests.take())
+        with self.assertRaisesRegex(RuntimeError, "read-only"):
+            follower.unpark()
+        with self.assertRaisesRegex(RuntimeError, "read-only"):
+            follower.go_home(30)
+        follower.park(30)
+        follower.disconnect()
+        self.arm.command.assert_not_called()
+        self.arm.switch_off.assert_not_called()
+        self.arm.connect.assert_called_once_with(False)
+
+    def test_read_only_failed_connect_never_requests_park(self):
+        follower = ReadOnlyFollower(self.arm, {}, self.fields, 0.03, io.StringIO())
+        self.arm.connect.side_effect = RuntimeError("missing feedback")
+        with self.assertRaisesRegex(RuntimeError, "missing feedback"):
+            follower.connect()
+        self.assertTrue(follower.parked)
+        self.arm.command.assert_not_called()
+        self.arm.switch_off.assert_not_called()
+
 
 class MotorBridgeTests(unittest.TestCase):
     def setUp(self):
@@ -204,6 +250,24 @@ class MotorBridgeTests(unittest.TestCase):
                          [(i, i + 0x10, "4340P" if i <= 3 else "4310") for i in range(1, 8)])
         for motor in motors:
             motor.ensure_mode.assert_called_once_with(2, timeout_ms=1000)
+
+    def test_read_only_driver_lifecycle_never_writes_motor_controls(self):
+        module, ctrl = self.driver_module()
+        motors = list(self.arm.motors)
+        fields = fields_from_config(portal_config(RobotConfig, "test", "rebot"))
+        follower = ReadOnlyFollower(self.arm, {}, fields, 0.03, io.StringIO())
+        with patch.dict("sys.modules", {"motorbridge": module}):
+            follower.connect()
+            state, _ = follower.get_observation()
+            follower.send_action({**state, fields[4]: -1.57})
+            follower.park(30)
+            follower.disconnect()
+        # Only queries and resource cleanup are allowed on this path.
+        self.assertEqual({call[0] for call in ctrl.method_calls},
+                         {"add_damiao_motor", "close_bus", "close"})
+        for motor in motors:
+            self.assertEqual({call[0] for call in motor.method_calls},
+                             {"get_register_u32", "request_feedback", "get_register_f32", "get_state", "close"})
 
     def test_partial_enable_failure_never_disables(self):
         module, ctrl = self.driver_module()

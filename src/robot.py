@@ -52,6 +52,8 @@ class ParkRequests:
         """Queue a request and say what will happen; raises on an unknown payload."""
         if payload not in (PARK_TOGGLE, PARK_ONLY):
             raise ValueError(f"unknown park request {payload!r}: send {PARK_TOGGLE!r} to toggle or {PARK_ONLY!r}")
+        if getattr(self.followers, "read_only", False) is True:
+            return "read-only diagnostic: motor commands and power-up are blocked"
         if payload == PARK_ONLY:
             if self.followers.parked and self.running is None:
                 self.pending = None  # a toggle still waiting would power them up
@@ -65,6 +67,8 @@ class ParkRequests:
 
     def home(self, who: str) -> str:
         """Queue a return to rest and say what will happen."""
+        if getattr(self.followers, "read_only", False) is True:
+            return "read-only diagnostic: motor commands and power-up are blocked"
         busy = self.pending[1] if self.pending else self.running
         if busy in (PARK_TOGGLE, PARK_ONLY):
             return "powering the arms up" if busy == PARK_TOGGLE and self.followers.parked else "parking the arms"
@@ -174,7 +178,10 @@ async def main(builder=None, profile: str = "metal") -> None:
         print(f"[robot] connecting to {url} as '{ROBOT_IDENTITY}' in room '{room}' ...")
         await robot.connect(url, mint_token(ROBOT_IDENTITY, room))
         hotkeys.start()
-        print(f"[robot] connected; cameras={tracks}; {fps} fps; p parks or powers up, ctrl-c parks and stops")
+        controls = ("READ ONLY; actions are logged, motor commands and power-up are blocked; ctrl-c stops"
+                    if getattr(followers, "read_only", False) is True
+                    else "p parks or powers up, ctrl-c parks and stops")
+        print(f"[robot] connected; cameras={tracks}; {fps} fps; {controls}")
         async for tick in pace(fps):
             if "p" in hotkeys.drain():
                 parking.ask("this terminal", PARK_TOGGLE)

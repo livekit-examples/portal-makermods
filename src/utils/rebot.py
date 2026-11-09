@@ -7,8 +7,10 @@ as 0..1. All methods run on the robot's one hardware thread.
 from __future__ import annotations
 
 import logging
+import json
 import math
 import platform
+import time
 
 from utils.common import env_camera_id, env_float, env_int, env_str, required_env
 from utils.metal import Camera, Followers, StepLimiter, arm_fields
@@ -205,7 +207,40 @@ class Follower(Followers):
         self.arms["right"].command([target[name] for name in self.fields])
 
 
-def build_follower(cfg, fps):
+class ReadOnlyFollower(Follower):
+    """Stream sensors and trace requested actions without sending motor commands."""
+
+    read_only = True
+
+    def __init__(self, arm, cameras, fields, max_step, trace):
+        super().__init__(arm, cameras, fields, max_step)
+        self.trace = trace
+
+    def _open_arms(self, energize):
+        self.arms["right"].connect(False)
+
+    def connect(self):
+        try:
+            super().connect()
+        finally:
+            self.parked = True
+
+    def unpark(self):
+        raise RuntimeError("read-only diagnostic: motor power-up is blocked")
+
+    def go_home(self, fps):
+        raise RuntimeError("read-only diagnostic: motor movement is blocked")
+
+    def park(self, fps):
+        pass  # Never move or change motor state, including during shutdown.
+
+    def send_action(self, action):
+        self.trace.write(json.dumps({"time_ns": time.time_ns(), "requested": action,
+                                     "measured": self.limiter.present}, allow_nan=False) + "\n")
+        self.trace.flush()
+
+
+def build_follower(cfg, fps, *, read_only=False, trace=None):
     from lerobot.cameras import Cv2Backends
     from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 
@@ -224,4 +259,8 @@ def build_follower(cfg, fps):
             backend=Cv2Backends.V4L2 if platform.system() == "Linux" else Cv2Backends.ANY,
         )
         cameras[name] = Camera(name, OpenCVCamera(config))
+    if read_only:
+        if trace is None:
+            raise ValueError("read-only diagnostics require an action trace file")
+        return ReadOnlyFollower(arm, cameras, fields, max_step, trace)
     return Follower(arm, cameras, fields, max_step)
