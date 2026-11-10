@@ -54,6 +54,49 @@ action:
 # `robot-rebot` and `dream-1-tasks` select this profile. Other peers select it
 # with PORTAL_PROFILE=rebot. The top-level contract remains the Metal pair.
 profiles:
+  widowx:
+    videos: &sim_videos
+      - { name: overhead_camera, codec: vp8, max_bitrate_kbps: 3000, screencast: true }
+      - { name: left_wrist_camera, codec: vp8, max_bitrate_kbps: 2000, screencast: true }
+      - { name: right_wrist_camera, codec: vp8, max_bitrate_kbps: 2000, screencast: true }
+      - { name: scene_camera, codec: vp8, max_bitrate_kbps: 4000, screencast: true }
+    # WidowX AI joint radians, gripper 0 closed .. 1 open. Distinct from Metal.
+    state: &widowx_fields
+      - { name: left_joint_0.pos, dtype: f32 }
+      - { name: left_joint_1.pos, dtype: f32 }
+      - { name: left_joint_2.pos, dtype: f32 }
+      - { name: left_joint_3.pos, dtype: f32 }
+      - { name: left_joint_4.pos, dtype: f32 }
+      - { name: left_joint_5.pos, dtype: f32 }
+      - { name: left_gripper.pos, dtype: f32 }
+      - { name: right_joint_0.pos, dtype: f32 }
+      - { name: right_joint_1.pos, dtype: f32 }
+      - { name: right_joint_2.pos, dtype: f32 }
+      - { name: right_joint_3.pos, dtype: f32 }
+      - { name: right_joint_4.pos, dtype: f32 }
+      - { name: right_joint_5.pos, dtype: f32 }
+      - { name: right_gripper.pos, dtype: f32 }
+    action: *widowx_fields
+  yam:
+    videos: *sim_videos
+    # YAM radians, normalized grip (0..47.5 mm carriage travel). Deliberately
+    # distinct from WidowX joint_0..5 and Metal joint1..6 / millimetre grippers.
+    state: &yam_fields
+      - { name: left_joint_1.pos, dtype: f32 }
+      - { name: left_joint_2.pos, dtype: f32 }
+      - { name: left_joint_3.pos, dtype: f32 }
+      - { name: left_joint_4.pos, dtype: f32 }
+      - { name: left_joint_5.pos, dtype: f32 }
+      - { name: left_joint_6.pos, dtype: f32 }
+      - { name: left_gripper.pos, dtype: f32 }
+      - { name: right_joint_1.pos, dtype: f32 }
+      - { name: right_joint_2.pos, dtype: f32 }
+      - { name: right_joint_3.pos, dtype: f32 }
+      - { name: right_joint_4.pos, dtype: f32 }
+      - { name: right_joint_5.pos, dtype: f32 }
+      - { name: right_joint_6.pos, dtype: f32 }
+      - { name: right_gripper.pos, dtype: f32 }
+    action: *yam_fields
   rebot:
     videos:
       # VP8 also decodes on the Mac hand-teleop host; its H264 path received no frames.

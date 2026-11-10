@@ -14,6 +14,9 @@ IK_ARM = "seeed_faas"  # Dream's built-in Seeed reBot B601-DM, in DM motor radia
 
 
 class RebotMapping:
+    cameras = CAMERAS
+    arm_count = 1
+
     def __init__(self, cfg):
         from dream_ik.specs import EMBODIMENTS
 
@@ -23,6 +26,11 @@ class RebotMapping:
             raise ValueError("Dream's ReBot spec must describe six joints in motor radians")
         self.left_rest = rest.tolist()
         self.blank_wrist = encode_frame(np.zeros((176, 320, 3), dtype=np.uint8))
+        self.blank_frames = {"video.wrist_l": self.blank_wrist}
+
+    @staticmethod
+    def chunk_rows(reply):
+        return chunk_rows(reply)
 
     def policy_config(self, checkpoint, row_hz):
         return {"checkpoint": checkpoint, "embodiment": embodiment(),

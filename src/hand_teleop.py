@@ -1,4 +1,4 @@
-"""Teleop from a laptop webcam: each hand drives one arm (Metal pair or single ReBot) while it holds a gripper shape.
+"""Teleop from a laptop webcam: each hand drives one arm (Metal, ReBot, WidowX or YAM) while it holds a gripper shape.
 
     uv run --group hands hand-teleop --offline   # webcam and IK only: try it at a desk, no robot
     uv run --group hands hand-teleop             # in the robot's room; `c` takes control
@@ -10,9 +10,11 @@ three out of the palm lets go: nothing more is sent for that arm, and the robot 
 anchors anew, so the arm follows the hand's motion and turn since the grip, never where the hand is
 or how it is held: let go, move back, grip again, as with a mouse. As with a mouse, slow moves count
 for less (`HAND_FINE_SCALE`), so careful ones are fine and a still hand holds the arm still.
+Motion defaults to the gripper's POV: toward the webcam advances along the fingers, and wrist
+twist rolls the gripper. Use --frame base for the original fixed robot-base directions.
 dream_ik turns each target tool pose into joints. See tutorial/11-hand-teleop.md.
 
-Keys: `c` takes or releases control, `p` parks or powers up the arms, `x` quits. Saying "hand teleop" to the voice
+Keys: `c` takes or releases control, `p` parks hardware or returns simulated arms home, `x` quits. Saying "hand teleop" to the voice
 agent (tutorial/10-voice-tasks.md) hands it control too, through `uv run dream-1-tasks`.
 """
 from __future__ import annotations
@@ -31,13 +33,12 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from utils.common import (portal_config, HardwareThread, claim_or_release, env_camera_id, env_float, env_int, env_str,
+from utils.common import (ROBOT_IDENTITY, portal_config, HardwareThread, claim_or_release, env_camera_id, env_float, env_int, env_str,
                           hand_teleop_identity, load_env, mint_token, pace, request_park, required_env)
-from utils.hands import (BONES, INDEX_TIP, THUMB_TIP, ArmFollower, ArmsIK, Clutch, Hand, HandPose, HandSize, Mapping,
+from utils.hands import (HAND_PROFILES, BONES, INDEX_TIP, THUMB_TIP, ArmFollower, ArmsIK, Clutch, Hand, HandPose, HandSize, Mapping,
                          assign_sides, camera_to_base, hand_pose, turn_between)
 from utils.hotkeys import Hotkeys, input_backend_warning
-from utils.metal import GRIPPER_MAX_MM, arm_fields, clamp_to_limits
-from utils.rebot import clamp as clamp_rebot, fields_from_config
+from utils.metal import GRIPPER_MAX_MM
 from utils.rerun_view import HAND_TELEOP_VIEWER_PORT, Preview
 
 WEBCAM_VIEW = "webcam"
@@ -181,8 +182,8 @@ class Pilot:
     def __init__(self, ik: ArmsIK, mappings: dict[str, Mapping], fps: float, focal_px: float, swap: bool) -> None:
         self.ik, self.fps, self.focal_px, self.swap = ik, fps, focal_px, swap
         self.sides = ik.sides
-        # The hand follower uses the Metal 0..100 scale internally; ReBot wire grip is 0..1.
-        self.grip_scale = GRIPPER_MAX_MM if ik.profile == "rebot" else 1.0
+        # The follower uses 0..100 internally; all non-Metal wire grips are 0..1.
+        self.grip_scale = 1.0 if ik.profile == "metal" else GRIPPER_MAX_MM
         self.arms = {side: Arm(Clutch(), ArmFollower(mappings[side])) for side in self.sides}
         self.q: Optional[dict[str, np.ndarray]] = None
         self.grip: Optional[dict[str, float]] = None
@@ -220,8 +221,8 @@ class Pilot:
                 arm.follower.observe(pose, moving=arm.clutch.closed)
 
     def take_over(self, state: dict[str, float]) -> None:
-        self.q = {side: np.array([state[name] for name in arm_fields(side)[:6]]) for side in self.sides}
-        self.grip = {side: float(state[arm_fields(side)[6]]) * self.grip_scale for side in self.sides}
+        self.q = {side: np.array([state[name] for name in self.ik.fields[side][:6]]) for side in self.sides}
+        self.grip = {side: float(state[self.ik.fields[side][6]]) * self.grip_scale for side in self.sides}
 
     def drop(self) -> None:
         """Control changed hands: forget the held targets; the next grip starts from the arms' state."""
@@ -243,7 +244,7 @@ class Pilot:
             return None
         gripping = [side for side, arm in self.arms.items() if arm.clutch.closed and arm.hand is not None]
         if self.q is None:
-            if not gripping or state is None or any(name not in state for side in self.sides for name in arm_fields(side)):
+            if not gripping or state is None or any(name not in state or not math.isfinite(state[name]) for name in self.ik.limits):
                 return None
             self.take_over(state)
         for side, arm in self.arms.items():
@@ -266,14 +267,12 @@ class Pilot:
         self.ik_ms = (time.perf_counter() - started) * 1e3
         for side in engaged:
             follower = self.arms[side].follower
-            follower.settle(reachable[side])
+            follower.settle(reachable[side], commanded=self.ik.fk(command[side], side))
             self.q[side], self.grip[side] = command[side], follower.grip_mm
         action = {}
         for side in self.sides:
-            action.update(zip(arm_fields(side), [*map(float, self.q[side]), self.grip[side] / self.grip_scale]))
-        if self.ik.profile == "rebot":
-            return dict(zip(arm_fields("right"), clamp_rebot([action[name] for name in arm_fields("right")])))
-        return clamp_to_limits(action)
+            action.update(zip(self.ik.fields[side], [*map(float, self.q[side]), self.grip[side] / self.grip_scale]))
+        return self.ik.clamp_action(action)
 
     def drain_events(self) -> list[str]:
         out = []
@@ -281,6 +280,17 @@ class Pilot:
             out += [f"{side} arm: {event}" for event in arm.events]
             arm.events.clear()
         return out
+
+
+async def request_home_or_park(op, profile):
+    if profile in ("widowx", "yam"):
+        try:
+            reply = await op.perform_rpc("sim.motion", "home", destination=ROBOT_IDENTITY)
+            print(f"[hands] return home: {reply}")
+        except Exception as exc:
+            print(f"[hands] return-home request failed: {exc}; press p to retry")
+    else:
+        await request_park(op, "hands")
 
 
 def caption(image: np.ndarray, text: str, x: float, bottom: float, scale: float = 0.5, centred: bool = True) -> None:
@@ -320,7 +330,8 @@ def draw(sighting: Sighting, pilot: Pilot, status: str) -> np.ndarray:
         x, y = w - 1 - arm.image[:, 0].mean(), arm.image[:, 1].min() - 8  # centred just above the hand
         if arm.follower.engaged:
             d = arm.follower.moved() * 1000
-            label = f"{side.upper()} {d[0]:+.0f} fwd {-d[1]:+.0f} right {d[2]:+.0f} up mm"
+            label = (f"{side.upper()} [{arm.follower.mapping.frame}] "
+                     f"base XYZ {d[0]:+.0f} {d[1]:+.0f} {d[2]:+.0f} mm")
             if arm.follower.mapping.rotate != "off":
                 label += f", turn {math.degrees(arm.follower.turned()):.0f} deg"
             label += f", grip {arm.follower.grip_mm:.0f}"
@@ -332,11 +343,11 @@ def draw(sighting: Sighting, pilot: Pilot, status: str) -> np.ndarray:
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
-def build_pilot(fps: float, ik: ArmsIK, rotate: str, frame_width: int) -> Pilot:
+def build_pilot(fps: float, ik: ArmsIK, rotate: str, frame_width: int, frame: Optional[str] = None) -> Pilot:
     hfov = math.radians(env_float("HAND_CAMERA_HFOV_DEG", 70.0))
     mappings = {side: Mapping(to_base=camera_to_base(env_float(f"HAND_{side.upper()}_YAW_DEG", 0.0)),
                               scale=env_float("HAND_SCALE", 1.0), fine_scale=env_float("HAND_FINE_SCALE", 0.4),
-                              rotate=rotate,
+                              rotate=rotate, frame=frame if frame is not None else env_str("HAND_FRAME", "tool"),
                               turn_deadband_rad=math.radians(env_float("HAND_TURN_DEADBAND_DEG", 5.0)),
                               max_speed_m_s=env_float("HAND_MAX_SPEED_M_S", 0.5))
                 for side in ik.sides}
@@ -352,9 +363,15 @@ async def main() -> None:
     parser.add_argument("--rotate", choices=("full", "yaw", "off"), default=env_str("HAND_ROTATE", "full"),
                         help="what the hand's turning does to the gripper (default: full, it turns as the hand "
                              "does; yaw: about vertical only; off: it keeps its orientation)")
-    parser.add_argument("--profile", choices=("metal", "rebot"), default=env_str("PORTAL_PROFILE", "metal"),
+    parser.add_argument("--frame", choices=("tool", "base"), default=env_str("HAND_FRAME", "tool"),
+                        help="motion frame: tool (default, gripper POV) or base (fixed robot-base axes)")
+    parser.add_argument("--profile", choices=HAND_PROFILES, default=env_str("PORTAL_PROFILE", "metal"),
                         help="robot rig; defaults to PORTAL_PROFILE, or metal")
     args = parser.parse_args()
+    if args.profile not in HAND_PROFILES:
+        parser.error("PORTAL_PROFILE must be metal, rebot, widowx or yam")
+    if args.frame not in ("tool", "base"):
+        parser.error("HAND_FRAME must be tool or base")
 
     if args.offline:
         cfg, url, room, fps, cameras = None, "", "offline", env_int("PORTAL_FPS", 30), []
@@ -363,19 +380,22 @@ async def main() -> None:
 
         url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
         cfg = portal_config(OperatorConfig, room, args.profile)
-        if args.profile == "rebot":
-            fields_from_config(cfg)
         fps, cameras = env_int("PORTAL_FPS", cfg.fps), list(cfg.video_tracks)
 
     width, height = env_int("HAND_CAMERA_WIDTH", 640), env_int("HAND_CAMERA_HEIGHT", 480)
     worker = HardwareThread("hand-ik")  # the IK off the event loop
-    ik = ArmsIK(fps, env_float("HAND_TABLE_Z_M", 0.0), env_float("HAND_MAX_JOINT_RAD_S", 1.5),
-                profile=args.profile)
-    pilot = build_pilot(fps, ik, args.rotate, width)
+    try:
+        ik = await worker.run(lambda: ArmsIK(fps, env_float("HAND_TABLE_Z_M", 0.0),
+                                            env_float("HAND_MAX_JOINT_RAD_S", 1.5),
+                                            profile=args.profile, cfg=cfg))
+    except BaseException:
+        worker.close()
+        raise
+    pilot = build_pilot(fps, ik, args.rotate, width, frame=args.frame)
     webcam = Webcam(env_camera_id("HAND_CAMERA", "0"), width, height)
     hotkeys = Hotkeys(global_tap=env_int("PORTAL_HOTKEYS_GLOBAL", 1) != 0)
     rest = {name: value for side in ik.sides  # offline: physical arms at rest, grippers half open
-            for name, value in zip(arm_fields(side), [*ik.rest, 50.0 / pilot.grip_scale])}
+            for name, value in zip(ik.fields[side], [*ik.rest, 50.0 / pilot.grip_scale])}
 
     op, preview = None, None
     latest_obs, obs_at, shown_ts = None, 0.0, None
@@ -411,8 +431,11 @@ async def main() -> None:
             print(f"[hands] global hotkeys will not fire ({why}); press them in this terminal")
         print("[hands] curl middle, ring and pinky into the palm to grip an arm; thumb to index sets its gripper; "
               "lift one out to let go" + ("" if args.rotate == "off" else "; turning the hand turns the gripper"))
+        print(f"[hands] motion frame: {args.frame}; " +
+              ("toward the webcam advances along the gripper; wrist twist is local roll"
+               if args.frame == "tool" else "fixed robot-base directions"))
         print("[hands] " + ("offline: nothing is sent; x quits" if args.offline else
-                            "c takes or releases control, p parks, x quits"))
+                            f"c takes or releases control, p {'returns home' if args.profile in ('widowx', 'yam') else 'parks'}, x quits"))
         shown_seq = 0
         async for tick in pace(fps):
             keys = hotkeys.drain()
@@ -422,7 +445,7 @@ async def main() -> None:
                 if "c" in keys:
                     await claim_or_release(op, "hands")
                 if "p" in keys:
-                    await request_park(op, "hands")
+                    await request_home_or_park(op, args.profile)
 
             now = time.monotonic()
             sighting = webcam.latest()
@@ -444,11 +467,17 @@ async def main() -> None:
                     for name, frame in obs.frames.items():
                         preview.show(name, frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height))
 
+            command_obs_at = obs_at
             action = await worker.run(pilot.tick, mine, state)
             for line in pilot.drain_events():
                 print(f"[hands] {line}")
             if action is not None and op is not None:
-                op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
+                # Handoff callbacks can run while IK is solving on the worker.
+                if (control_changed or op.active_operator() != op.local_identity()
+                        or time.monotonic() - command_obs_at >= OBS_STALE_S):
+                    pilot.drop()
+                else:
+                    op.send_action(action, in_reply_to_ts_us=obs.timestamp_us)
 
             if sighting is not None and sighting.seq != shown_seq:
                 shown_seq = sighting.seq

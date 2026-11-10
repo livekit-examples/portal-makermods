@@ -133,10 +133,11 @@ The robot clamps to ReBot's joint limits and ramps target changes by at most
 `REBOT_SPEED_RAD_S` (default 0.5); home/park targets move at
 `REBOT_PARK_DEG_S` (default 10 degrees/s). These settings must be positive.
 
-For observers, set `PORTAL_PROFILE=rebot` on their hosts too:
+For observers, set `PORTAL_PROFILE=rebot` on their hosts too. The recorder also
+accepts an explicit flag, which takes precedence over `.env.local`:
 
 ```bash
-uv run recorder
+uv run recorder --profile rebot
 uv run --group monitor task-monitor --dry-run
 ```
 

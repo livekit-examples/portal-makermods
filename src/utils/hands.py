@@ -1,4 +1,4 @@
-"""Webcam hands as Metal arm targets: the gesture clutch, the hand's pose, and the relative mapping.
+"""Webcam hands as arm targets: the gesture clutch, the hand's pose, and the relative mapping.
 
 Numpy on MediaPipe's 21 hand landmarks, so all of it tests without a camera or a model; the webcam
 loop is `src/hand_teleop.py`. See tutorial/11-hand-teleop.md.
@@ -7,11 +7,11 @@ Two frames:
 - camera: OpenCV's, of the raw (unmirrored) webcam image: x right, y down, z away from the lens.
   MediaPipe's world landmarks use these axes, in metres, about the hand's centre, but turned as the
   hand looks from the lens rather than from straight ahead (see `view_rotation`).
-- base: each Metal arm's own, as dream_ik's FK has it: x forward, y to the robot's left, z up.
+- base: each arm's own, as dream_ik's FK has it: x forward, y to the robot's left, z up.
 
-The operator faces the webcam as if standing behind the arms, facing the workspace: a hand pushed
-toward the screen reaches forward, the operator's right is the robot's right, up is up, and a hand
-turned one way turns the gripper the same way.
+By default motion is in the gripper's POV: toward the lens advances along its fingers. Rotation
+uses the palm's own axes, so twisting the wrist rolls the gripper regardless of how the hand is
+held. The optional base frame retains the original standing-behind-the-arms mapping.
 """
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ from scipy.spatial.transform import Rotation
 
 from utils.metal import GRIPPER_MAX_MM, SIDES
 
+HAND_PROFILES = ("metal", "rebot", "widowx", "yam")
+
 # MediaPipe's landmark indices.
 WRIST, THUMB_TIP, INDEX_MCP, INDEX_TIP = 0, 4, 5, 8
 MIDDLE_MCP, MIDDLE_TIP, RING_MCP, RING_TIP, PINKY_MCP, PINKY_TIP = 9, 12, 13, 16, 17, 20
@@ -36,6 +38,13 @@ BONES = ((0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9),
 # Camera axes into base axes: toward the lens (-z) is forward (+x), the image's right (the operator's
 # left) is the robot's left (+y), and the image's up (-y) is up (+z).
 CAMERA_TO_BASE = np.array([[0.0, 0.0, -1.0], [1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])
+
+# Dream's TCP: z along the fingers, x across the jaws, y = z cross x. Looking out along z,
+# call +x right and -y up. Lateral and vertical controls are reversed from the initial mapping:
+# raw +x maps to tool +x, raw -y (hand up) maps to tool +y. Wrist turns use HAND_TO_TOOL separately.
+CAMERA_TO_TOOL = np.diag([1.0, -1.0, -1.0])
+# Palm x (wrist toward knuckles) -> approach/roll z; palm y -> jaw x; palm normal z -> tool y.
+HAND_TO_TOOL = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
 
 # Tip-to-wrist over knuckle-to-wrist, per finger: about 1.8 straight. Below 1.0 the tip has folded back
 # past its knuckle, into the palm; a hooked or half-curled finger stays above it.
@@ -286,6 +295,7 @@ class Mapping:
     """How a hand's motion becomes a tool pose. Speeds bound the target, before the IK's joint caps."""
 
     to_base: np.ndarray  # (3, 3), from `camera_to_base`
+    frame: str = "tool"  # "tool": gripper POV; "base": the original fixed camera-to-base mapping
     scale: float = 1.0  # tool metres per hand metre
     fine_scale: float = 0.4  # how much of `scale` a slow hand gets: careful moves (and a still hand's wobble) shrink
     fine_below_m_s: float = 0.04  # a hand this slow or slower moves the tool at `fine_scale`
@@ -309,6 +319,10 @@ class Mapping:
     slip_rad: float = math.radians(10)
     takeover_mm: float = 0.1 * GRIPPER_MAX_MM  # the pinch must come this close to the gripper to take it
 
+    def __post_init__(self) -> None:
+        if self.frame not in ("tool", "base"):
+            raise ValueError("hand frame must be tool or base")
+
     def gain(self, speed_m_s: float) -> float:
         """How much of the hand's motion the tool makes at this hand speed, before `scale`."""
         t = float(np.clip((speed_m_s - self.fine_below_m_s) / max(self.full_above_m_s - self.fine_below_m_s, 1e-9),
@@ -326,7 +340,7 @@ class ArmFollower:
 
     Every sighting of the hand is filtered (`observe`), gripping or not, so a grip anchors to a settled
     estimate rather than to one frame's noise. `engage` anchors the hand to the tool. While engaged,
-    each sighting moves the target by the hand's motion in the base frame, scaled by how fast the hand
+    each sighting moves the target by the hand's motion in the selected frame, scaled by how fast the hand
     goes: a slow, careful hand moves the tool at `fine_scale`, a quick one at full `scale`, like a
     mouse. A still hand holds the tool still: the target moves only once the hand has taken it
     `hold_m` from where it is (or turned it `hold_rad`), so jitter never reaches the arm. Each tick
@@ -334,11 +348,13 @@ class ArmFollower:
     floor, its reach), `settle` moves the target to where the arm is, and the hand drives it from
     there at once instead of first having to come back.
 
-    Turning is relative too: the hand's turn since the grip turns the tool about its own point, the same
-    way as the operator sees it. The first few degrees are dropped, so a hand that only moves keeps the
+    Tool-frame translation uses the latest commanded tool orientation, updated after IK's joint cap;
+    turning the gripper redirects the next forward motion. Rotation is the palm's body-relative turn
+    since engagement, mapped to the tool's axes: a twist around wrist-to-knuckles is always tool roll.
+    In base mode turns instead use the camera axes. The first few degrees are dropped, so a hand that only moves keeps the
     tool steady. A turn the arm cannot make stops the tool where it can go, and the turn comes back to
-    the hand's when the hand does: with `rotate` "full", hand level is tool level (give or take the
-    hold) for the whole grip. Past `max_hand_turn_rad` the hand's anchor turns along with it: turning
+    the hand's when the hand does: with `rotate` "full", returning to the hand's anchor returns to the
+    tool's anchor (give or take the hold). Past `max_hand_turn_rad` the hand's anchor turns along with it: turning
     back acts at once, and turning farther takes a new grip, as moving farther does.
 
     The gripper takes over softly: it holds where it was until the pinch comes to it, so gripping
@@ -358,6 +374,7 @@ class ArmFollower:
     _kept: np.ndarray = field(default=None, repr=False)  # (3, 3) the hand's turn past the deadband, held likewise
     _goal: np.ndarray = field(default=None, repr=False)  # (4, 4), the last target
     _turn: np.ndarray = field(default=None, repr=False)  # (3, 3), the last base-frame turn applied to the anchor
+    _motion_rot: np.ndarray = field(default=None, repr=False)  # current commanded TCP orientation
     _grip_taken: bool = False
     _grip_side: float = 0.0
 
@@ -379,13 +396,18 @@ class ArmFollower:
         m = self.mapping
         if last is not None:
             gain = m.scale * m.gain(math.hypot(self._across.speed, self._depth.speed))
-            self._target = self._target + gain * (m.to_base @ (self._hand_pos - last))
+            axes = self._motion_rot @ CAMERA_TO_TOOL if m.frame == "tool" else m.to_base
+            self._target = self._target + gain * (axes @ (self._hand_pos - last))
             if (gap := np.linalg.norm(off := self._target - self._held)) > m.hold_m:
                 self._held = self._held + off * (1.0 - m.hold_m / gap)
-        turn = Rotation.from_matrix(self._hand_rot @ self._anchor_hand_rot.T).as_rotvec()
+        relative = (self._anchor_hand_rot.T @ self._hand_rot if m.frame == "tool"
+                    else self._hand_rot @ self._anchor_hand_rot.T)
+        turn = Rotation.from_matrix(relative).as_rotvec()
         if (angle := np.linalg.norm(turn)) > (cap := m.max_hand_turn_rad):
-            beyond = turn * (1.0 - cap / angle)  # same axis, so the anchor can take it on the left
-            self._anchor_hand_rot = Rotation.from_rotvec(beyond).as_matrix() @ self._anchor_hand_rot
+            beyond = turn * (1.0 - cap / angle)
+            slip = Rotation.from_rotvec(beyond).as_matrix()
+            self._anchor_hand_rot = (self._anchor_hand_rot @ slip if m.frame == "tool"
+                                     else slip @ self._anchor_hand_rot)
             turn = turn - beyond
         angle = float(np.linalg.norm(turn))
         wanted = Rotation.from_rotvec(turn * (max(0.0, angle - m.turn_deadband_rad) / max(angle, 1e-9))).as_matrix()
@@ -404,6 +426,7 @@ class ArmFollower:
         self.engaged = True
         self._anchor_hand_rot, self._kept = self._hand_rot.copy(), np.eye(3)
         self._anchor_tcp, self._goal, self._turn = tcp.copy(), tcp.copy(), np.eye(3)
+        self._motion_rot = tcp[:3, :3].copy()
         self._target, self._held = tcp[:3, 3].copy(), tcp[:3, 3].copy()
         self.grip_mm = grip_mm
         self._grip_side = math.copysign(1.0, self.mapping.grip_mm(self._pinch) - grip_mm)
@@ -415,7 +438,8 @@ class ArmFollower:
     def goal(self, fps: float) -> np.ndarray:
         """This tick's target tool pose (4, 4) in the base frame; `grip_mm` is the gripper's."""
         m = self.mapping
-        turn = m.to_base @ self._kept @ m.to_base.T
+        axes = self._anchor_tcp[:3, :3] @ HAND_TO_TOOL if m.frame == "tool" else m.to_base
+        turn = axes @ self._kept @ axes.T
         self._turn = {"off": np.eye(3), "yaw": _rot_z(_twist_about_z(turn))}.get(m.rotate, turn)
         rotation = self._turn @ self._anchor_tcp[:3, :3]
 
@@ -428,6 +452,7 @@ class ArmFollower:
         self._goal = self._goal.copy()
         self._goal[:3, 3] += step
         self._goal[:3, :3] = Rotation.from_rotvec(swing).as_matrix() @ self._goal[:3, :3]
+        self._motion_rot = self._goal[:3, :3].copy()  # standalone follower; settle replaces this after IK
 
         wanted = m.grip_mm(self._pinch)
         if not self._grip_taken and (abs(wanted - self.grip_mm) <= m.takeover_mm
@@ -442,10 +467,13 @@ class ArmFollower:
         """The gripper is holding until the pinch comes to it."""
         return self.engaged and not self._grip_taken
 
-    def settle(self, reachable: np.ndarray) -> None:
+    def settle(self, reachable: np.ndarray, commanded: Optional[np.ndarray] = None) -> None:
         """Where the IK says the arm can go this tick (4, 4). A place past it moves the target there; a
-        turn past it holds the target there, and with `rotate` other than "full" turns the anchor too."""
+        turn past it holds the target there, and with `rotate` other than "full" turns the anchor too.
+        `commanded` is FK after the joint speed cap, used for the next tool-frame movement's direction.
+        """
         m = self.mapping
+        self._motion_rot = (commanded if commanded is not None else reachable)[:3, :3].copy()
         miss = reachable[:3, 3] - self._goal[:3, 3]
         if np.linalg.norm(miss) > m.slip_m:
             self._anchor_tcp[:3, 3] += miss
@@ -481,12 +509,12 @@ class ArmsIK:
 
     TURN_WEIGHT = 4.0
 
-    def __init__(self, fps: float, table_z_m: float, max_joint_rad_s: float, profile: str = "metal") -> None:
+    def __init__(self, fps: float, table_z_m: float, max_joint_rad_s: float, profile: str = "metal", cfg=None) -> None:
         import jax.numpy as jnp  # lazy: JAX
         from dream_ik.solver import ChunkIK
         from dream_ik.specs import EMBODIMENTS, Embodiment, Region
 
-        if profile not in ("metal", "rebot"):
+        if profile not in HAND_PROFILES:
             raise ValueError(f"unsupported hand-teleop profile: {profile}")
         self.profile = profile
         self.sides = ("right",) if profile == "rebot" else SIDES
@@ -496,6 +524,34 @@ class ArmsIK:
             model = "portal_rebot_right"
             EMBODIMENTS.setdefault(model, Embodiment(arm=EMBODIMENTS["seeed_faas"].side_arm("right"),
                                                    sides=self.sides, obstacles={"right": ()}))
+        elif profile in ("widowx", "yam"):
+            from dream import arm_file
+            from utils.common import ROOT
+            model = arm_file.register(str(ROOT / "assets" / profile / "dream_arm.json"))
+
+        from livekit.portal import OperatorConfig
+        from utils.common import portal_config
+        from utils.metal import arm_fields, LIMITS_RAD
+        from utils.rebot import LIMITS as REBOT_LIMITS
+
+        cfg = cfg if cfg is not None else portal_config(OperatorConfig, "offline", profile)
+        self.fields, self.limits = {}, {}
+        for side in self.sides:
+            if profile in ("widowx", "yam"):
+                import xml.etree.ElementTree as ET
+                spec = EMBODIMENTS[model].side_arm(side)
+                joints = {j.get("name"): j for j in ET.parse(spec.urdf).getroot().findall("joint")}
+                names = [f"{side}_{joint}.pos" for joint in spec.joints] + [f"{side}_gripper.pos"]
+                limits = [tuple(float(joints[j].find("limit").get(k)) for k in ("lower", "upper"))
+                          for j in spec.joints] + [(0., 1.)]
+            else:
+                names = arm_fields(side)
+                limits = REBOT_LIMITS if profile == "rebot" else LIMITS_RAD + [(0., GRIPPER_MAX_MM)]
+            self.fields[side] = names
+            self.limits.update(zip(names, limits))
+        if (set(self.limits) != {f.name for f in cfg.state_schema}
+                or set(self.limits) != {f.name for f in cfg.action_schema}):
+            raise ValueError(f"hand teleop {profile} requires the matching Portal profile")
         floor = (Region(lo=(None, None, table_z_m)),)
         self._ik = ChunkIK(model, "tcp", hz=fps, obstacles={side: floor for side in self.sides})
         for group in self._ik._groups:  # dream_ik keeps its weights internal (pinned in uv.lock)
@@ -503,6 +559,11 @@ class ArmsIK:
         self._rows = [self._ik.sides.index(side) for side in self.sides]  # the IK orders sides (right, left)
         self.max_joint_rad_s = max_joint_rad_s
         self.rest = self._ik.side_rest[self._rows[0]].copy()
+
+    def clamp_action(self, action):
+        if set(action) != set(self.limits) or not all(math.isfinite(v) for v in action.values()):
+            raise ValueError("hand action must contain all profile fields with finite values")
+        return {name: float(np.clip(value, *self.limits[name])) for name, value in action.items()}
 
     def warmup(self) -> None:
         """Compile the one-tick solve and the FK (several seconds the first time, cached after)."""

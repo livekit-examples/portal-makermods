@@ -2,7 +2,8 @@
 
 Dream-1 follows a one-line task prompt. In [chapter 2](02-dream-1.md) that prompt
 is fixed when the process starts, and `c` is the only way to hand over control.
-Here `dream-1-tasks` drives one Seeed ReBot B601-DM with two cameras. Complete
+Here `dream-1-tasks` drives one Seeed ReBot B601-DM with two cameras. For the simulated Trossen WidowX AI pair and browser task field, use
+`--profile widowx` and [chapter 14](14-mujoco-sim.md). Complete
 [chapter 13](13-rebot.md) first. The voice agent lets you change its task,
 pause and resume Dream-1, send the arm home, and park it by talking:
 

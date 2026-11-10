@@ -32,3 +32,10 @@ __pycache__/
 # Training artifacts.
 /outputs/
 /checkpoints/
+
+# Browser build.
+node_modules/
+/web/sim/dist/
+
+# MuJoCo diagnostic log.
+MUJOCO_LOG.TXT

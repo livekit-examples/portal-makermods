@@ -9,7 +9,34 @@ uses its input observation.
 
 [`src/recorder.py`](../src/recorder.py)
 connects an `Observer`, waits for robot clock synchronization, and starts a
-Portal `RrdSink`:
+Portal `RrdSink`.
+
+Start the robot first, then choose the same rig in a separate recorder process:
+
+```bash
+uv run recorder --profile widowx  # dual Trossen WidowX AI: 14 values, four cameras
+uv run recorder --profile yam     # dual I2RT YAM: 14 values, four cameras
+uv run recorder --profile rebot  # single Seeed B601-DM: seven values, two cameras
+uv run recorder --profile metal  # original Metal pair
+```
+
+Run just the command for your room. `--profile` overrides `PORTAL_PROFILE`,
+including settings loaded from `.env.local`. Without the flag, the recorder
+continues to use `PORTAL_PROFILE`, falling back to Metal when unset. Both
+state/action schemas and all camera names come from `portal.yaml` through
+`portal_config`; the recorder does not pad or convert an arm's data. Check
+the startup log for the selected profile, field counts and camera names.
+
+For Trossen the cameras are overhead, left wrist, right wrist, and scene;
+for ReBot they remain overhead and arm. Grippers stay in the profile's units
+(normalized 0–1 for Trossen/ReBot, millimetres for Metal). Each profile's
+recordings must be converted into its own compatible dataset.
+
+To preview without writing a file, add `--observe-only` to the same command.
+The Rerun layout shows only the arms present in that profile and all its
+cameras. Ctrl-C or SIGTERM flushes the recorder before closing the archive.
+
+The recording path still uses the standard Portal sink:
 
 ```python
 sink = RrdSink("data/sessions", jpeg_quality=95)

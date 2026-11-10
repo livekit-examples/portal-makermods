@@ -49,6 +49,7 @@ HOME_RPC = "home"  # the robot walks the powered arms back to rest and holds the
 # The task-switching Dream-1 (`uv run dream-1-tasks`) answers these; the voice agent calls them.
 # Each takes and returns JSON; every reply is the status (see src/policies/dream_1_tasks/run.py).
 DREAM_TASKS_IDENTITY = "policy-dream-1-tasks"
+DREAM_TASK_MAX_CHARS = 200
 DREAM_STATUS_RPC = "dream.status"
 DREAM_SET_TASK_RPC = "dream.set_task"  # {"task": "put the red cube in the box"}; pauses first if Dream-1 drives
 DREAM_PAUSE_RPC = "dream.pause"  # Dream-1 releases control; the arms hold

@@ -29,6 +29,8 @@ act = "policies.act.run:run"
 voice-agent = "voice_agent:run"
 hand-teleop = "hand_teleop:run"
 task-monitor = "task_monitor:run"
+robot-sim = "robot_sim:run"
+sim-policy = "sim_policy:run"
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -36,7 +38,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = ["robot", "robot_rebot", "teleoperator", "recorder", "voice_agent", "hand_teleop", "task_monitor"]
+py-modules = ["robot", "robot_rebot", "teleoperator", "recorder", "voice_agent", "hand_teleop", "task_monitor", "robot_sim", "sim_policy"]
 packages = ["utils", "policies", "policies.act", "policies.dream_1", "policies.dream_1_tasks"]
 
 [dependency-groups]
@@ -50,3 +52,19 @@ voice = ["livekit-agents~=1.8", "livekit-plugins-ai-coustics~=0.3"]
 hands = ["mediapipe>=1.2"]
 # The task monitor (`uv run --group monitor task-monitor`): LeRobot's TOPReward, which loads a Qwen3-VL model.
 monitor = ["lerobot[topreward]>=0.6.1"]
+# Standalone cloud image uses --only-group sim, without hardware/training packages.
+sim = [
+    "aiohttp>=3.10,<4",
+    "livekit-api>=0.7",
+    "livekit-portal>=0.3.0",
+    "mujoco==4.0.0",
+    "numpy>=1.24",
+    "python-dotenv>=1",
+    "pyyaml>=6",
+]
+# Optional cloud policy image: Dream SDK supplies its custom-arm IK and headless JPEG encoder.
+sim-dream = [
+    { include-group = "sim" },
+    "dreamlabs>=1.0.23",
+    "dreamlabs-client>=1.0.14",
+]

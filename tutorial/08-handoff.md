@@ -58,3 +58,11 @@ gate stops accepting new operator actions; it does not disable motor torque.
 ---
 
 Previous: [7. HITL recording](07-hitl-recording.md) · [Tutorial index](../README.md#the-tutorial) · Next: [9. Configuration and troubleshooting](09-reference.md)
+
+## Simulation handoff
+
+[Chapter 14](14-mujoco-sim.md) uses the same gate for a browser operator and
+a policy on two simulated WidowX arms. Both start idle. The browser can select
+an operator, release control, or reset the scene. Reset and handoff invalidate
+old targets and observations; a command timeout releases control without
+automatically choosing a replacement.

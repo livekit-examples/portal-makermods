@@ -17,15 +17,22 @@ Keep it small and readable. The README leads with the numbered `tutorial/`.
 - `src/policies/dream_1_tasks/` drives the single ReBot with a switchable task (`uv run dream-1-tasks`); its
   RebotMapping uses Dream's built-in `seeed_faas` B601-DM model and pads the base model's absent left arm/view,
   never Portal data.
+  `--profile widowx` selects the simulated WidowX AI pair with a model-derived custom-arm IK file,
+  native wrist views, and normalized grippers. Browser Demonstration tasks sync through `utils/sim_tasks.py`;
+  new tasks pause, and Hand off explicitly resumes. The operator reports its profile over `dream.status`.
   It answers the `dream.*`
   RPCs named in `src/utils/common.py`: set the task, pause, resume, hand control to the teleoperator or the webcam
-  hand teleop (`src/hand_teleop.py`, identity from `hand_teleop_identity()`), take it from the hand teleop.
+  hand teleop (`src/hand_teleop.py`, identity from `hand_teleop_identity()`; supports `metal`, `rebot`,
+  `widowx`, and `yam` profiles, with simulation `p` requesting home), take it from the hand teleop.
 - `src/voice_agent.py` (`uv run --group voice voice-agent`) is a LiveKit Agents voice agent on agent-starter-python's
   pipeline that calls those RPCs, plus the robot's `home` RPC and its `park` RPC with payload `"park"`, which only
   parks (never powers up). It is not a Portal peer and never sends actions.
 - `src/task_monitor.py` (`uv run --group monitor task-monitor`) is a Portal observer that scores dream-1-tasks' runs
   with LeRobot's TOPReward (Qwen3-VL), clears the control gate when a run is done or stuck, and reports to the voice
   agent over `monitor.report`. Its model loads only inside `Scorer`, so the rest imports without the monitor group.
+- `src/robot_sim.py` (`uv run --group sim robot-sim`) runs two MuJoCo WidowX AI arms,
+  four cameras, and the browser operator bridge in `src/utils/sim_web.py`; `sim-policy`
+  is an idle-by-default demo operator. Both select `profiles.widowx`. See tutorial 14.
 - `test/` checks behavior without hardware.
 
 Run the three peers as `uv run robot`, `uv run teleoperator`, and `uv run recorder`
@@ -37,7 +44,8 @@ Update affected chapters with behavior changes.
 
 - All peers load `portal.yaml` through `utils.common.portal_config`; do not duplicate schema field lists in Python.
   Top-level fields are Metal; `profiles.rebot` overrides them for ReBot. Recorder, monitor, ACT, and hand teleop use
-  `PORTAL_PROFILE` (hand teleop also accepts `--profile`); the hardware-specific apps select their profile explicitly.
+  `PORTAL_PROFILE` (recorder and hand teleop also accept `--profile`, which takes precedence);
+  the hardware-specific apps select their profile explicitly. Recorder retains every profile's actual fields/cameras.
 - Model tensors use training dataset order, read from `meta/info.json`.
 - Control is explicit: `c` selects an operator, `p` parks or powers up the arms. No background auto-claim loop.
   A task change releases Dream-1's control first; only an explicit resume (`c`, or "continue") gives it back.
@@ -64,6 +72,7 @@ uv run python -m test.test_resilience
 uv run python -m unittest test.test_dream1 test.test_dream1_tasks test.test_task_monitor
 uv run python -m unittest test.test_rebot
 uv run python -m unittest test.test_hands
+uv run --group sim python -m unittest test.test_mujoco_sim test.test_sim_web
 # With livekit-server --dev:
 uv run --group voice python -m test.test_voice_tasks
 uv run --group voice python -m test.test_monitor_voice

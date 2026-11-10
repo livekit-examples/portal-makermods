@@ -5,6 +5,11 @@ of whichever operator drives, and every keypoint, and writes them with Portal's
 `RrdSink`. There is nothing to press and no window to look at. An observer
 cannot drive, so this process cannot move the arm however it is started.
 
+Use `--profile widowx` for the dual Trossen WidowX AI simulation, `--profile yam`
+for dual I2RT YAM, `--profile rebot`
+for one Seeed B601-DM, or `--profile metal`. Without a flag, PORTAL_PROFILE selects
+the rig (Metal when unset). The flag overrides .env and .env.local.
+
 `uv run recorder --observe-only` writes nothing and shows the same streams live
 in a Rerun window instead: a quick look at what is in the room.
 
@@ -14,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import signal
 
 from utils.common import portal_config, RECORDER_IDENTITY, env_int, env_str, load_env, mint_token, required_env
 from utils.rerun_view import OBSERVER_VIEWER_PORT
@@ -36,9 +42,11 @@ def layout(session) -> rrb.Blueprint:
     arms = []
     for side in ("left", "right"):
         mine = [n for n in fields if n.startswith(f"{side}_")]
+        if not mine:
+            continue  # ReBot has only a right arm; do not invent an empty left-arm panel.
         arms.append(rrb.Vertical(
             plot(f"{side} joints (rad)", [n for n in mine if "gripper" not in n]),
-            plot(f"{side} gripper (mm)", [n for n in mine if "gripper" in n]),
+            plot(f"{side} gripper (profile units)", [n for n in mine if "gripper" in n]),
             row_shares=[3, 1],
         ))
     cameras = [rrb.Spatial2DView(name=t.name, origin=path(t.name)) for t in session.video_tracks]
@@ -82,30 +90,34 @@ def status(obs: Observer) -> str:
             f"{m.observer.frames_dropped} dropped by the writer")
 
 
-async def main(observe_only: bool) -> None:
+async def main(observe_only: bool, profile: str | None = None) -> None:
     load_env()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
 
     url = required_env("LIVEKIT_URL")
     room = required_env("LIVEKIT_ROOM")
-    obs = Observer(portal_config(ObserverConfig, room))
+    profile = profile or env_str("PORTAL_PROFILE", "metal")
+    cfg = portal_config(ObserverConfig, room, profile)
+    obs = Observer(cfg)
     obs.on_keypoint(lambda kp: print(f"[recorder] {kp.type} {kp.payload} from {kp.sender}"))
 
     identity = "observer" if observe_only else RECORDER_IDENTITY  # never displaces the real recorder
+    print(f"[recorder] {profile}: {len(cfg.state_schema)} state fields, "
+          f"{len(cfg.action_schema)} action fields, cameras {', '.join(cfg.video_tracks)}")
     print(f"[recorder] connecting to {url} as '{identity}' in room '{room}' ...")
     # connect() returns after the first sync with the robot's clock, so every row
     # is stamped on it. Start the robot first: without it, connect() raises
     # TimeSyncTimeout after 10 s.
-    await obs.connect(url, mint_token(identity, room))
-
-    if observe_only:
-        sink = LiveSink("", jpeg_quality=80)
-    else:
-        sink = RrdSink(env_str("PORTAL_DATA_RRD_DIR", "data/sessions"),
-                       jpeg_quality=env_int("PORTAL_DATA_RRD_QUALITY", 95))
-    obs.record_to(sink)
-    print(f"[recorder] {'showing the room in Rerun' if observe_only else f'recording to {sink.path}'}; ctrl-c to stop")
-
+    sink = None
     try:
+        await obs.connect(url, mint_token(identity, room))
+        if observe_only:
+            sink = LiveSink("", jpeg_quality=80)
+        else:
+            sink = RrdSink(env_str("PORTAL_DATA_RRD_DIR", "data/sessions"),
+                           jpeg_quality=env_int("PORTAL_DATA_RRD_QUALITY", 95))
+        obs.record_to(sink)
+        print(f"[recorder] {'showing the room in Rerun' if observe_only else f'recording to {sink.path}'}; ctrl-c to stop")
         while True:
             await asyncio.sleep(5.0)
             print(f"[recorder] {status(obs)}")
@@ -116,14 +128,17 @@ async def main(observe_only: bool) -> None:
             await obs.disconnect()  # writes what is queued, then closes the file
         finally:
             obs.close()
-            if sink.path:
+            if sink and sink.path:
                 print(f"[recorder] wrote {sink.path}")
 
 
 def run() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--observe-only", action="store_true", help="show the room live in Rerun; write nothing")
-    asyncio.run(main(parser.parse_args().observe_only))
+    parser.add_argument("--profile", choices=("metal", "rebot", "widowx", "yam"),
+                        help="rig schema; overrides PORTAL_PROFILE and .env.local")
+    args = parser.parse_args()
+    asyncio.run(main(args.observe_only, args.profile))
 
 
 if __name__ == "__main__":

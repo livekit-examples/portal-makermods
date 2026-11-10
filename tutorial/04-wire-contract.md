@@ -7,8 +7,8 @@ This chapter explains the configuration used in the walkthrough. Open
 
 The schema declares three camera tracks and fourteen positions: six joints
 and one gripper per arm. State reports measured positions; actions request
-target positions. Joints use radians. The gripper uses the driver's normalized
-opening scaled to 0–100 (closed to open); see
+target positions. Joints use radians. The Metal gripper uses its stroke in millimetres,
+0 closed to 80 open; see
 [`metal.py`](../src/utils/metal.py).
 
 The schema sets a 30 Hz rate and H264 video. Keep these defaults for the walkthrough.
@@ -32,7 +32,13 @@ and passes the selected contract to Portal. The top-level fields are the Metal
 rig; `profiles.rebot` replaces state, action, and videos with seven values and
 two cameras. `robot-rebot` and `dream-1-tasks` explicitly select `rebot`.
 Recorder, task monitor, and ACT use `PORTAL_PROFILE` (default `metal`); set it to
-`rebot` for that room. ReBot grip is normalized **0..1**, unlike Metal's 0..100.
+`rebot` for that room. ReBot grip is normalized **0..1**, unlike Metal's 0..80 mm.
+
+`profiles.widowx` is the [dual-arm MuJoCo simulation](14-mujoco-sim.md):
+14 named WidowX positions (radians, grip 0..1) and four VP8 cameras, including
+a movable spectator view. `robot-sim` and `sim-policy` select it explicitly;
+use `PORTAL_PROFILE=widowx` on the recorder and ACT hosts. The named joints
+intentionally differ from Metal so an incompatible checkpoint fails validation.
 Do not load this extended YAML directly with Portal's `from_yaml_file`.
 
 ## 3. Preserve training order

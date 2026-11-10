@@ -194,7 +194,7 @@ class FollowerTests(unittest.TestCase):
     def follow(self, rotate="off", grip_mm=50.0, pinch_m=0.06, **mapping):
         """A follower gripped at a hand 50 cm from the lens; `EXACT` unless `mapping` says otherwise."""
         self.clock = 0.0
-        follower = ArmFollower(Mapping(to_base=camera_to_base(), rotate=rotate, **{**EXACT, **mapping}))
+        follower = ArmFollower(Mapping(frame="base", to_base=camera_to_base(), rotate=rotate, **{**EXACT, **mapping}))
         tcp = np.eye(4)
         tcp[:3, 3] = (0.3, 0.0, 0.3)
         follower.observe(pose(0.0, [0.0, 0.0, 0.5], pinch_m=pinch_m))
@@ -228,7 +228,7 @@ class FollowerTests(unittest.TestCase):
         self.assertAlmostEqual(math.degrees(math.atan2(goal[1, 0], goal[0, 0])), 30.0, delta=6.0)
 
     def test_full_rotation_maps_the_turn_into_the_base(self):
-        self.assertEqual(Mapping(to_base=CAMERA_TO_BASE).rotate, "full", "the gripper turns by default")
+        self.assertEqual(Mapping(frame="base", to_base=CAMERA_TO_BASE).rotate, "full", "the gripper turns by default")
         follower = self.follow(rotate="full")
         goal = self.run_to(follower, [0.0, 0.0, 0.5], rot("x", 25))
         expected = CAMERA_TO_BASE @ rot("x", 25 - 5) @ CAMERA_TO_BASE.T  # less the 5 degree deadband
@@ -273,12 +273,95 @@ class FollowerTests(unittest.TestCase):
         self.assertGreater(follower.grip_mm, 0.9 * GRIPPER_MAX_MM, "once taken, the pinch drives it")
 
 
+class ToolFrameTests(unittest.TestCase):
+    """Directions are checked in the TCP's POV, including when hand and tool face different ways."""
+
+    def follower(self, hand_rotation, tool_rotation, **settings):
+        mapping = Mapping(to_base=camera_to_base(70), **{**EXACT, "turn_deadband_rad": 0.,
+                          "smoothing_hz": 1e9, "depth_smoothing_hz": 1e9,
+                          "turn_smoothing_hz": 1e9, **settings})
+        follower = ArmFollower(mapping)
+        tcp = np.eye(4)
+        tcp[:3, :3], tcp[:3, 3] = tool_rotation, [.3, 0., .3]
+        follower.observe(pose(0., [0., 0., .5], hand_rotation))
+        follower.engage(tcp, 50.)
+        return follower, tcp
+
+    def test_depth_and_screen_motion_follow_tool_axes_at_any_pose(self):
+        for hand in (np.eye(3), rot("x", 150) @ rot("y", -40)):
+            for tool in (np.eye(3), rot("y", 90), rot("z", 50) @ rot("x", 65)):
+                # Toward lens -> forward; lateral and vertical controls are reversed.
+                for delta, local in (([0, 0, -.01], [0, 0, .01]),
+                                     ([0, 0, .01], [0, 0, -.01]),
+                                     ([-.01, 0, 0], [-.01, 0, 0]),
+                                     ([.01, 0, 0], [.01, 0, 0]),
+                                     ([0, -.01, 0], [0, .01, 0]),
+                                     ([0, .01, 0], [0, -.01, 0])):
+                    with self.subTest(hand=hand.tolist(), tool=tool.tolist(), delta=delta):
+                        follower, tcp = self.follower(hand, tool)
+                        self.assertEqual(follower.mapping.frame, "tool")
+                        follower.observe(pose(1/30, np.array([0., 0., .5]) + delta, hand))
+                        goal = follower.goal(30)
+                        np.testing.assert_allclose(goal[:3, 3] - tcp[:3, 3], tool @ local, atol=1e-8)
+                        np.testing.assert_allclose(goal[:3, :3], tool, atol=1e-8)
+
+    def test_wrist_twist_is_tool_roll_independent_of_hand_orientation(self):
+        for hand in (np.eye(3), rot("y", 90), rot("z", 180) @ rot("x", -70)):
+            for tool in (rot("x", 55), rot("z", 70) @ rot("y", -35)):
+                for degrees in (-30, 30):
+                    follower, tcp = self.follower(hand, tool)
+                    follower.observe(pose(1., [0., 0., .5], hand @ rot("x", degrees)))
+                    for _ in range(10):goal = follower.goal(30)
+                    # Positive wrist-to-knuckles twist is clockwise looking forward along that axis.
+                    np.testing.assert_allclose(goal[:3, :3], tool @ rot("z", degrees), atol=1e-8)
+                    np.testing.assert_allclose(goal[:3, 3], tcp[:3, 3], atol=1e-8)
+
+    def test_forward_redirects_after_a_turn_without_orbiting_the_tip(self):
+        hand, tool = rot("y", 40), rot("x", 65)
+        follower, tcp = self.follower(hand, tool)
+        turned_hand = hand @ rot("y", 60)  # hand local y -> tool local x
+        follower.observe(pose(1., [0., 0., .5], turned_hand))
+        for _ in range(15):turned = follower.goal(30)
+        np.testing.assert_allclose(turned[:3, :3], tool @ rot("x", 60), atol=1e-8)
+        np.testing.assert_allclose(turned[:3, 3], tcp[:3, 3], atol=1e-8)
+        follower.observe(pose(2., [0., 0., .49], turned_hand))
+        goal = follower.goal(30)
+        np.testing.assert_allclose(goal[:3, 3] - tcp[:3, 3], turned[:3, 2] * .01, atol=1e-8)
+        # Twist after the tilt is still body-local roll, not a turn about the old approach axis.
+        follower.observe(pose(3., [0., 0., .49], turned_hand @ rot("x", 20)))
+        for _ in range(10):goal = follower.goal(30)
+        np.testing.assert_allclose(goal[:3, :3], turned[:3, :3] @ rot("z", 20), atol=1e-8)
+
+    def test_direction_uses_joint_limited_command_not_unreachable_target(self):
+        follower, tcp = self.follower(np.eye(3), np.eye(3))
+        follower.observe(pose(1., [0., 0., .5], rot("y", 60)))
+        for _ in range(15):target = follower.goal(30)
+        commanded = tcp.copy()
+        commanded[:3, :3] = rot("x", 10)  # joint speed cap has not reached the 60 degree target
+        follower.settle(target, commanded=commanded)
+        follower.observe(pose(2., [0., 0., .49], rot("y", 60)))
+        goal = follower.goal(30)
+        np.testing.assert_allclose(goal[:3, 3] - tcp[:3, 3], commanded[:3, 2] * .01, atol=1e-8)
+
+    def test_roll_cap_reversal_and_regrip_do_not_jump(self):
+        hand, tool = rot("z", 150), rot("y", -70)
+        follower, tcp = self.follower(hand, tool)
+        for at, degrees, expected in ((1., 120, 90), (2., 100, 70)):
+            follower.observe(pose(at, [0., 0., .5], hand @ rot("x", degrees)))
+            for _ in range(20):goal = follower.goal(30)
+            np.testing.assert_allclose(goal[:3, :3], tool @ rot("z", expected), atol=1e-8)
+        follower.release()
+        follower.observe(pose(3., [.1, .1, .7], rot("y", 80)))
+        follower.engage(goal, 50.)
+        np.testing.assert_allclose(follower.goal(30), goal, atol=1e-8)
+
+
 class SteadinessTests(unittest.TestCase):
     """The defaults against a jittery hand: what holds a still arm still and makes small moves easier."""
 
     def gripped(self, rotate="full", **mapping):
         self.clock, self.rng = 0.0, np.random.default_rng(1)
-        follower = ArmFollower(Mapping(to_base=camera_to_base(), rotate=rotate, **mapping))
+        follower = ArmFollower(Mapping(frame="base", to_base=camera_to_base(), rotate=rotate, **mapping))
         for _ in range(30):  # a second in view before the grip: it anchors to the settled hand, not to one frame
             self.see(follower, [0.0, 0.0, 0.5])
         tcp = np.eye(4)
@@ -319,7 +402,7 @@ class SteadinessTests(unittest.TestCase):
         self.assertLess(steady, 0.7 * jittery, f"the hold takes a third or more off {jittery:.1f} degrees")
 
     def test_a_slow_hand_moves_the_tool_finely_a_quick_one_fully(self):
-        follower = ArmFollower(Mapping(to_base=camera_to_base(), rotate="off", hold_m=0.0))
+        follower = ArmFollower(Mapping(frame="base", to_base=camera_to_base(), rotate="off", hold_m=0.0))
         tcp = np.eye(4)
         tcp[:3, 3] = (0.3, 0.0, 0.3)
         follower.observe(pose(0.0, [0.0, 0.0, 0.5]))
@@ -353,7 +436,7 @@ class IKTests(unittest.TestCase):
         np.testing.assert_allclose(q["right"], self.ik.rest, atol=1e-3)
 
     def test_a_tilt_the_arm_cannot_make_gives_way_not_the_place(self):
-        follower = ArmFollower(Mapping(to_base=camera_to_base(), rotate="full"))
+        follower = ArmFollower(Mapping(frame="base", to_base=camera_to_base(), rotate="full"))
         q = {side: self.ik.rest.copy() for side in SIDES}
         start = self.ik.fk(q["right"], "right")
         follower.observe(pose(0.0, [0.0, 0.0, 0.5]))
@@ -395,7 +478,7 @@ class RebotPilotTests(unittest.TestCase):
         cls.ik.warmup()
 
     def setUp(self):
-        self.pilot = build_pilot(30, self.ik, "off", 640)
+        self.pilot = build_pilot(30, self.ik, "off", 640, frame="base")
         self.state = dict(zip(arm_fields("right"), [0.0, -0.6, -1.0, 0.7, 0.0, 0.0, 0.4]))
         self.seq = 0
 
@@ -454,7 +537,7 @@ class PilotTests(unittest.TestCase):
         cls.ik.warmup()
 
     def setUp(self):
-        self.pilot = build_pilot(30, self.ik, "off", 640)
+        self.pilot = build_pilot(30, self.ik, "off", 640, frame="base")
         self.state = {}
         for side in SIDES:
             self.state.update(zip(arm_fields(side), [*self.ik.rest, 40.0]))
@@ -508,7 +591,7 @@ class PilotTests(unittest.TestCase):
         self.assertIn("jumped", " ".join(self.pilot.drain_events()))
 
     def test_a_turning_hand_turns_its_gripper(self):
-        self.pilot = build_pilot(30, self.ik, "full", 640)
+        self.pilot = build_pilot(30, self.ik, "full", 640, frame="base")
         at = np.array([0.0, 0.0, 0.5])
         for _ in range(3):
             self.sight(project(hand_world(), at))
@@ -540,7 +623,7 @@ class PilotTests(unittest.TestCase):
 
     def test_a_flip_lets_go_when_the_gripper_turns(self):
         held = self.pilot  # rotate "off": a flip changes nothing it follows
-        turning = build_pilot(30, self.ik, "full", 640)
+        turning = build_pilot(30, self.ik, "full", 640, frame="base")
         for pilot in (held, turning):
             self.pilot = pilot
             for _ in range(3):

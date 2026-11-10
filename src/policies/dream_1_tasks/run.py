@@ -2,8 +2,8 @@
 
     uv run dream-1-tasks --task "put the blue cube in the box" --task "put the red cube in the box" --dry-run
 
-This app drives one Seeed B601-DM with overhead and arm cameras (tutorial/13-rebot.md).
-The scheduling follows `uv run dream-1`; RebotMapping supplies this arm's units and kinematics.
+This app drives one Seeed B601-DM (default) or a simulated WidowX / YAM pair
+(`--profile widowx` / `--profile yam`, tutorial/14-mujoco-sim.md). Each mapping supplies its units and kinematics.
 `TaskControl` holds the task: keys `1`-`9` pick a preset, and other peers, over RPC, change it,
 pause and resume Dream-1, hand the arms to the teleoperator or the webcam hand teleop, or take them away from the
 hand teleop. The voice agent (`uv run voice-agent`) is one.
@@ -11,13 +11,14 @@ hand teleop. The voice agent (`uv run voice-agent`) is one.
 A task change while Dream-1 drives releases control first, so the arms hold until someone resumes: a new task
 never starts motion. Each resume starts a new Dream-1 episode on the current task. With no task given at start,
 Dream-1 has none and does not move, even when handed control, until one is set. Keys in this terminal: `c` takes
-or releases control, `p` parks the arms or powers them up, `1`-`9` switch task.
+or releases control, `p` parks/powers ReBot or homes the simulation, `1`-`9` switch task.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import signal
 import sys
 import time
 from pathlib import Path
@@ -28,17 +29,19 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from livekit.portal import Operator, OperatorConfig, RpcError, frame_bytes_to_numpy_rgb
 from policies.dream_1.run import ROW_HZ, STALE_S, encode_frame, retry_delay
-from policies.dream_1_tasks.rebot import CAMERAS, RebotMapping, chunk_rows
+from policies.dream_1_tasks.rebot import RebotMapping
+from policies.dream_1_tasks.widowx import WidowxMapping
+from policies.dream_1_tasks.yam import YamMapping
 from utils.common import (portal_config, DREAM_PAUSE_RPC, DREAM_RESUME_RPC, DREAM_SET_TASK_RPC, DREAM_STATUS_RPC,
                           DREAM_STOP_HAND_TELEOP_RPC, DREAM_TASKS_IDENTITY, DREAM_TO_HAND_TELEOP_RPC,
                           DREAM_TO_TELEOP_RPC, TELEOPERATOR_IDENTITY, HardwareThread, claim_or_release, env_float,
                           env_int, env_str, hand_teleop_identity, load_env, mint_token, pace, request_park,
-                          required_env)
+                          required_env, DREAM_TASK_MAX_CHARS)
 from utils.hotkeys import Hotkeys
 from utils.session import MAX_TASKS, preset_tasks
 
 WHO = "dream-1-tasks"
-MAX_TASK_CHARS = 200  # one instruction; anything longer is more likely a transcription accident
+MAX_TASK_CHARS = DREAM_TASK_MAX_CHARS
 
 
 class TaskControl:
@@ -47,12 +50,13 @@ class TaskControl:
     `changed` tells the loop to start a new episode, so a chunk planned for the old task is never played.
     """
 
-    def __init__(self, op: Operator, presets: list[str]) -> None:
+    def __init__(self, op: Operator, presets: list[str], profile: str | None = None) -> None:
         self.op = op
         self.presets = presets
         self.task: str | None = presets[0] if presets else None  # None: nothing to do until a task is set
         self.changed = False
         self.hand_teleop = hand_teleop_identity()
+        self.profile = profile
 
     def driving(self) -> bool:
         return self.op.active_operator() == self.op.local_identity()
@@ -61,7 +65,8 @@ class TaskControl:
         """What every RPC answers: the task, the presets, who drives, and whether the teleoperator or the hand
         teleop could."""
         operators = self.op.operators()
-        return {"task": self.task, "presets": self.presets, "driving": self.driving(),
+        return {**({"profile": self.profile} if self.profile else {}),
+                "task": self.task, "presets": self.presets, "driving": self.driving(),
                 "active_operator": self.op.active_operator(),
                 "teleoperator_connected": TELEOPERATOR_IDENTITY in operators,
                 "hand_teleop": self.hand_teleop, "hand_teleop_connected": self.hand_teleop in operators}
@@ -124,6 +129,7 @@ class TaskControl:
             if self.op.active_operator() == identity:
                 return
             await asyncio.sleep(0.025)
+        raise RuntimeError("control change was not confirmed by the robot")
 
     def register_rpcs(self) -> None:
         """Answer the `dream.*` methods in src/utils/common.py, each with the status as JSON."""
@@ -161,17 +167,23 @@ def session_tasks(given: list[str] | None) -> list[str]:
 
 async def main() -> None:
     load_env()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", action="append", help="a preset task; repeat for keys 1-9 (the first starts)")
     parser.add_argument("--dry-run", action="store_true", help="print the targets instead of sending them")
+    parser.add_argument("--profile", choices=("rebot", "widowx", "yam"), default=env_str("PORTAL_PROFILE", "rebot"),
+                        help="robot embodiment; explicit flag overrides PORTAL_PROFILE and .env.local")
     args = parser.parse_args()
+    if args.profile not in ("rebot", "widowx", "yam"):
+        parser.error("dream-1-tasks supports --profile rebot, widowx, or yam; Metal uses dream-1")
 
     url, room = required_env("LIVEKIT_URL"), required_env("LIVEKIT_ROOM")
-    cfg = portal_config(OperatorConfig, room, "rebot")
-    mapping = RebotMapping(cfg)
+    cfg = portal_config(OperatorConfig, room, args.profile)
+    mapping = {"rebot": RebotMapping, "widowx": WidowxMapping, "yam": YamMapping}[args.profile](cfg)
     fps = env_int("PORTAL_FPS", cfg.fps)
     # Per-tick cap on the commanded target: joints in rad, grips 5% of their range per row.
-    max_step = np.array([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6 + [0.05 * ROW_HZ / fps])
+    max_step = np.array(([env_float("DREAM_MAX_JOINT_RAD_S", 0.5) / fps] * 6
+                         + [0.05 * ROW_HZ / fps]) * mapping.arm_count)
 
     client = dream.DreamClient()  # reads DREAM_API_KEY from .env (or ~/.dreamlabs/credentials)
     worker = HardwareThread("dream-1")  # one request at a time, off the event loop
@@ -179,23 +191,26 @@ async def main() -> None:
 
     def ask() -> tuple[float, np.ndarray]:
         asked_at = time.monotonic()
-        return asked_at, chunk_rows(client.get_action())
+        return asked_at, mapping.chunk_rows(client.get_action())
 
     def send_observation(obs, task: str) -> None:
-        frames = {"video.wrist_l": mapping.blank_wrist}
-        for role, track in CAMERAS.items():
+        frames = dict(mapping.blank_frames)
+        for role, track in mapping.cameras.items():
             frame = obs.frames[track]
             frames[f"video.{role}"] = encode_frame(frame_bytes_to_numpy_rgb(frame.data, frame.width, frame.height))
         client.set_observation(frames, mapping.observation(obs.state, task))
 
     op = Operator(cfg)
-    tasks = TaskControl(op, session_tasks(args.task))
+    tasks = TaskControl(op, session_tasks(args.task), args.profile)
     tasks.register_rpcs()
     latest_obs, received_at = None, 0.0
     control_changed = True
 
     def on_observation(obs) -> None:
         nonlocal latest_obs, received_at
+        if latest_obs is None:
+            print(f"[{WHO}] {args.profile}: receiving timestamped observations "
+                  f"({len(obs.state)} state fields, {len(obs.frames)} camera frames)", flush=True)
         latest_obs, received_at = obs, time.monotonic()
 
     def on_active_operator_changed(identity) -> None:
@@ -218,13 +233,17 @@ async def main() -> None:
         hotkeys.start()
         for number, task in enumerate(tasks.presets, start=1):
             print(f"[{WHO}]   {number}  {task}")
-        on = f"on {tasks.task!r}" if tasks.task else "with no task (the voice agent sets one)"
+        on = f"on {tasks.task!r}" if tasks.task else "with no task (set one through the browser or voice agent)"
         switch = f", 1-{len(tasks.presets)} switch task" if tasks.presets else ""
-        print(f"[{WHO}] ready{' (dry run)' if args.dry_run else ''} {on}; c takes control, p parks{switch}")
+        print(f"[{WHO}] {args.profile} ready{' (dry run)' if args.dry_run else ''} {on}; "
+              f"c takes control, p {'homes' if args.profile in ('widowx', 'yam') else 'parks'}{switch}")
         async for tick in pace(fps):
             for key in hotkeys.drain():
                 if key == "p":
-                    await request_park(op, WHO)
+                    if args.profile in ("widowx", "yam"):
+                        await op.perform_rpc("sim.motion", "home")
+                    else:
+                        await request_park(op, WHO)
                 elif key == "c" and tasks.task is None and not tasks.driving():
                     print(f"[{WHO}] no task yet: set one by voice, or restart with --task")
                 elif key == "c":
@@ -238,7 +257,7 @@ async def main() -> None:
             if not tasks.driving() or tasks.task is None:
                 continue  # with no task, even when handed control, send nothing: the arms hold
             if (obs is None or time.monotonic() - received_at > STALE_S
-                    or set(CAMERAS.values()) - set(obs.frames) or set(mapping.fields) - set(obs.state)):
+                    or set(mapping.cameras.values()) - set(obs.frames) or set(mapping.fields) - set(obs.state)):
                 continue  # no fresh view: send nothing, and the arms hold
 
             if control_changed or tasks.changed:
@@ -250,6 +269,9 @@ async def main() -> None:
                 await worker.run(client.reset_episode)
                 chunk, sent_ts, retry_at = None, None, 0.0
                 target = mapping.to_model(obs.state)
+                # A task/handoff can arrive while waiting for the previous inference or reset.
+                # Re-enter with the latest observation before preparing or sending another action.
+                continue
 
             if obs.timestamp_us != sent_ts:
                 send_observation(obs, tasks.task)
