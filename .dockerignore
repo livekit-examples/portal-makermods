@@ -1,0 +1,13 @@
+.git
+.venv
+.env*
+node_modules
+**/node_modules
+web/sim/dist
+__pycache__
+**/__pycache__
+data
+outputs
+checkpoints
+tmp
+MUJOCO_LOG.TXT

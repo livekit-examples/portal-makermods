@@ -1,0 +1,40 @@
+# From the repo root: docker compose -f deploy/compose.sim.yaml up --build
+# Use LiveKit Cloud or an independently deployed LiveKit server, reachable by both peers and browser.
+services:
+  sim:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sim
+      target: sim
+    image: portal-widowx-sim
+    platform: linux/amd64
+    env_file: ../.env.sim
+    ports:
+      - "127.0.0.1:8080:8080"
+    gpus: all
+    init: true
+    stop_grace_period: 15s
+  demo-policy:
+    image: portal-widowx-sim
+    platform: linux/amd64
+    env_file: ../.env.sim
+    command: ["python", "-m", "sim_policy"]
+    profiles: ["demo"]
+    init: true
+    depends_on:
+      sim:
+        condition: service_healthy
+  dream-policy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sim
+      target: dream
+    image: portal-widowx-dream
+    platform: linux/amd64
+    env_file: ../.env.sim
+    profiles: ["dream"]
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      sim:
+        condition: service_healthy

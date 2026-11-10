@@ -1,0 +1,28 @@
+{
+  "urdf": "dream_arm.urdf",
+  "base": "base_link",
+  "flange": "link_6",
+  "tcp": [
+    0.156,
+    0,
+    0
+  ],
+  "approach": [
+    1,
+    0,
+    0
+  ],
+  "jaw": [
+    0,
+    1,
+    0
+  ],
+  "rest": [
+    0,
+    1.1,
+    1.2,
+    -0.65,
+    0,
+    0
+  ]
+}

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111719" />
+    <title>Robot Lab · Portal</title>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/" aria-label="Robot Lab home"
+        ><span class="brand-mark">p</span
+        ><span
+          >portal <span class="slash">/</span> <strong>Robot Lab</strong></span
+        ></a
+      >
+      <div class="connection">
+        <span id="connection-dot" class="dot"></span
+        ><span id="connection">Disconnected</span>
+      </div>
+    </header>
+    <main>
+      <div class="heading">
+        <div>
+          <p class="eyebrow">SIMULATION WORKSPACE</p>
+          <h1>Two arms. One shared workspace.</h1>
+          <p id="embodiment" class="subtitle">MuJoCo · Human-in-the-loop</p>
+        </div>
+        <span class="tag">SIMULATED HARDWARE</span>
+      </div>
+      <div id="notice" role="status" aria-live="polite">
+        Connect to start viewing the simulation.
+      </div>
+      <div class="workspace">
+        <section class="views" aria-label="Simulation cameras">
+          <div class="panel scene">
+            <div class="panel-heading">
+              <span><span class="live-dot"></span>Scene</span
+              ><span class="quiet">Drag to orbit · Scroll to zoom</span>
+            </div>
+            <div id="scene-view" class="video-wrap">
+              <video id="scene_camera" autoplay muted playsinline></video
+              ><span class="waiting">Waiting for scene stream</span>
+              <div class="scene-caption">
+                <b id="arm-caption">DUAL ARM</b> <span>01 / SHARED SCENE</span>
+              </div>
+            </div>
+            <div class="scene-footer">
+              <span>GPU-rendered view</span
+              ><span id="sim-clock">Episode — · 0.0 s</span
+              ><button id="view-reset" class="text-button">Reset view</button>
+            </div>
+          </div>
+          <div class="camera-grid">
+            <div class="panel camera">
+              <div class="panel-heading">
+                Overhead <span class="quiet">CAM 01</span>
+              </div>
+              <div class="video-wrap">
+                <video id="overhead_camera" autoplay muted playsinline></video
+                ><span class="waiting">Waiting for video</span>
+              </div>
+            </div>
+            <div class="panel camera">
+              <div class="panel-heading">
+                Left wrist <span class="quiet">CAM 02</span>
+              </div>
+              <div class="video-wrap">
+                <video id="left_wrist_camera" autoplay muted playsinline></video
+                ><span class="waiting">Waiting for video</span>
+              </div>
+            </div>
+            <div class="panel camera">
+              <div class="panel-heading">
+                Right wrist <span class="quiet">CAM 03</span>
+              </div>
+              <div class="video-wrap">
+                <video
+                  id="right_wrist_camera"
+                  autoplay
+                  muted
+                  playsinline
+                ></video
+                ><span class="waiting">Waiting for video</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside class="panel controls">
+          <div class="panel-heading">
+            Control room <span id="rate" class="quiet">—</span>
+          </div>
+          <section class="control-section">
+            <p class="label">ACTIVE OPERATOR</p>
+            <div class="operator">
+              <span id="operator-dot" class="dot"></span
+              ><strong id="operator-name">Nobody · Holding</strong>
+            </div>
+            <div class="button-row">
+              <button id="take" class="primary" disabled>Take control</button
+              ><button id="hold" disabled>Hold</button>
+            </div>
+            <div class="policy-row">
+              <select id="policy" aria-label="Connected policy">
+                <option value="">No policy connected</option></select
+              ><button id="handoff" disabled>Hand off</button>
+            </div>
+            <p class="hint">
+              Select an operator explicitly. Losing this connection releases
+              browser control.
+            </p>
+          </section>
+          <section class="control-section joints-section">
+            <div class="section-heading">
+              <p class="label">JOINT TARGETS</p>
+              <div class="segmented" aria-label="Arm selection">
+                <button id="left-tab" class="selected" aria-pressed="true">
+                  Left</button
+                ><button id="right-tab" aria-pressed="false">Right</button>
+              </div>
+            </div>
+            <div id="joints">
+              <p class="hint">Joint controls appear after connecting.</p>
+            </div>
+            <p class="hint">Angles in radians · Gripper as opening %</p>
+            <label for="setup" class="label">RESET SETUP</label>
+            <select id="setup" disabled>
+              <option value="workbench">Workbench · household objects</option>
+            </select>
+            <div class="button-row">
+              <button id="home" disabled>Return home</button
+              ><button id="reset" disabled>Reset scene</button>
+            </div>
+          </section>
+          <section class="control-section recording">
+            <div class="section-heading">
+              <p class="label">DEMONSTRATION</p>
+              <span id="record-status" class="quiet">Idle</span>
+            </div>
+            <label for="task" class="sr-only">Task description</label
+            ><input
+              id="task"
+              value="Put the apple in the tray"
+              maxlength="200"
+            />
+            <p id="task-status" class="hint" role="status" aria-live="polite">Waiting for Dream-1</p>
+            <p class="hint">Task changes sync to Dream-1 and pause it. Hand off resumes.</p>
+            <div class="button-row">
+              <button id="record" disabled>
+                <span class="record-icon"></span>Start take</button
+              ><button id="discard" disabled>Discard</button>
+            </div>
+            <p class="hint">
+              Requires a separate Portal recorder in this room.
+            </p>
+          </section>
+        </aside>
+      </div>
+      <footer>
+        <span>Physics in the cloud. Control through Portal.</span
+        ><span id="session-info">Waiting for connection</span>
+      </footer>
+    </main>
+    <dialog id="login">
+      <form id="login-form">
+        <span class="brand-mark">p</span>
+        <p class="eyebrow">PORTAL / ROBOT LAB</p>
+        <h2>Join the workspace</h2>
+        <p>Enter the access code from your simulation server.</p>
+        <label for="access-code">Access code</label
+        ><input
+          id="access-code"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+        <p id="login-error" role="alert"></p>
+        <button type="submit" class="primary">Connect to simulation</button>
+      </form>
+    </dialog>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
